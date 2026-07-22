@@ -492,14 +492,18 @@ fn format_sessions(response: &Response, json: bool) -> aegis_core::Result<Output
 
 fn format_diagnostics(response: &Response, json: bool) -> aegis_core::Result<Output> {
     match response {
-        Response::Diagnostics { checklist, items } => Ok(Output::ok(if json {
+        Response::Diagnostics {
+            protection,
+            checklist,
+            items,
+        } => Ok(Output::ok(if json {
             to_json(&serde_json::json!({
-                "status": checklist.status().label(),
+                "status": protection.label(),
                 "checklist": checklist,
                 "items": items,
             }))?
         } else {
-            render::diagnostics_report(checklist, items)
+            render::diagnostics_report(*protection, checklist, items)
         })),
         other => unexpected("Diagnostics", other),
     }
@@ -881,6 +885,7 @@ mod tests {
     fn diagnostics_json_is_valid_json() {
         // Drive the *real* formatter with --json and assert the stdout parses.
         let response = Response::Diagnostics {
+            protection: aegis_core::preflight::ProtectionStatus::Active,
             checklist: all_pass_checklist(),
             items: vec![aegis_core::health::DiagnosticItem::new(
                 "dns",

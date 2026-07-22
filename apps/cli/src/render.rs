@@ -233,8 +233,13 @@ pub fn checklist_report(checklist: &ConnectivityChecklist) -> String {
 /// Render the diagnostics panel: the checklist report followed by the
 /// per-subsystem [`DiagnosticItem`]s (spec §11).
 #[must_use]
-pub fn diagnostics_report(checklist: &ConnectivityChecklist, items: &[DiagnosticItem]) -> String {
+pub fn diagnostics_report(
+    protection: ProtectionStatus,
+    checklist: &ConnectivityChecklist,
+    items: &[DiagnosticItem],
+) -> String {
     let mut out = checklist_report(checklist);
+    out = out.replacen(checklist.status().label(), protection.label(), 1);
     out.push('\n');
     // Surface the observed public IP prominently if present.
     let observed = checklist
@@ -246,11 +251,21 @@ pub fn diagnostics_report(checklist: &ConnectivityChecklist, items: &[Diagnostic
         out.push_str("no diagnostics items");
     } else {
         out.push_str("diagnostics:\n");
-        let rows: Vec<[String; 3]> = items
+        let rows: Vec<[String; 4]> = items
             .iter()
-            .map(|i| [i.key.clone(), i.level.label().to_string(), i.detail.clone()])
+            .map(|i| {
+                [
+                    i.key.clone(),
+                    i.level.label().to_string(),
+                    i.evidence.label().to_string(),
+                    i.detail.clone(),
+                ]
+            })
             .collect();
-        out.push_str(&render_table(&["SUBSYSTEM", "LEVEL", "DETAIL"], &rows));
+        out.push_str(&render_table(
+            &["SUBSYSTEM", "LEVEL", "EVIDENCE", "DETAIL"],
+            &rows,
+        ));
     }
     out.trim_end().to_string()
 }
@@ -582,7 +597,7 @@ mod tests {
             DiagnosticItem::new("ipv6", HealthLevel::Ok, "blocked at gateway"),
             DiagnosticItem::new("kill_switch", HealthLevel::Ok, "armed"),
         ];
-        let out = diagnostics_report(&cl, &items);
+        let out = diagnostics_report(ProtectionStatus::Active, &cl, &items);
         assert!(out.contains("198.51.100.9"));
         assert!(out.contains("SUBSYSTEM"));
         assert!(out.contains("dns"));
