@@ -1,0 +1,72 @@
+#!/usr/sbin/nft -f
+#
+# Aegis Private Browser — Gateway VM IPv6 policy (default: BLOCK ALL).
+#
+# Spec references: promt.txt §5 ("blokuje IPv6 albo przesyła je przez tunel"),
+# §14 ("brak wycieku IPv6"), red-team §15 ("odpowiedź DNS przez IPv6").
+#
+# Maps to aegis-core Ipv6Policy (crates/aegis-core/src/network.rs):
+#   Ipv6Policy::Block              (DEFAULT) -> this file: drop ALL IPv6.
+#   Ipv6Policy::RouteThroughTunnel           -> do NOT load this file; instead the
+#                                               tunnel that genuinely supports v6
+#                                               carries it (see note at bottom).
+#
+# Why a separate table: IPv6 leaks are one of the most common ways a "private"
+# setup exposes the real host — a v6-capable network hands out a global address
+# and applications prefer it. DNS-over-IPv6 (§15) is a classic leak: the resolver
+# answers over v6 outside the tunnel. Blocking the entire ip6 family at the
+# gateway removes that whole class of leak in one move, independent of the inet
+# filter rules in gateway.nft.
+#
+# NOTE: gateway.nft uses `table inet filter`, whose chains also see IPv6 packets.
+# This dedicated `ip6 filter` table is an explicit, auditable belt-and-suspenders
+# layer whose sole job is "drop v6", so a reviewer can confirm the v6 policy in
+# one place and tests can flush/apply it independently.
+#
+# Apply:        nft -f firewall/nftables/ipv6-block.nft
+# Syntax check: nft -c -f firewall/nftables/ipv6-block.nft
+
+table ip6 filter
+delete table ip6 filter
+
+table ip6 filter {
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+        # Loopback (::1) must work for local IPv6 services; nothing else is let in.
+        iif "lo" accept
+        # Drop everything else, including ICMPv6 RA/NS from the upstream network,
+        # so the gateway does not even autoconfigure a global v6 address.
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        # No IPv6 is ever routed between the browser subnet and the WAN.
+    }
+
+    chain output {
+        type filter hook output priority filter; policy drop;
+        oif "lo" accept
+        # The gateway itself originates no IPv6 to the WAN in Block mode.
+    }
+}
+
+# ===========================================================================
+# ALTERNATIVE: Ipv6Policy::RouteThroughTunnel (tunnel-routed IPv6)
+# ===========================================================================
+# Only for tunnels that genuinely carry IPv6 (e.g. a WireGuard VPN that assigns a
+# v6 address inside the tunnel). In that mode you MUST NOT load this file. Instead:
+#
+#   1. Do not add an `ip6 filter` drop table (or delete it if present).
+#   2. In the inet filter forward/output chains, allow IPv6 ONLY when it egresses
+#      via the tunnel device (e.g. `oif "wg0"`), never via the raw upstream NIC:
+#
+#        # (illustrative — added to gateway.nft's chains for VPN mode)
+#        chain output  { ... meta nfproto ipv6 oif "wg0" accept ; ... }
+#        chain forward { ... meta nfproto ipv6 oifname "wg0" ct state new,established,related accept ; ... }
+#
+#   3. Still DROP IPv6 that would leave via the upstream physical NIC ($up_if),
+#      so a v6 route outside the tunnel remains impossible (fail-closed).
+#
+# For Aegis's default Tor mode there is no IPv6 transport, so Block is the only
+# correct policy and this file is always loaded.

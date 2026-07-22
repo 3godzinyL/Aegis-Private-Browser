@@ -1,0 +1,59 @@
+#!/usr/sbin/nft -f
+#
+# Aegis Private Browser — Gateway VM KILL SWITCH (drop-all isolation state).
+#
+# Spec references: promt.txt §5 ("odcina ruch natychmiast po utracie tunelu"),
+# §14 ("wyłączenie Gateway natychmiast odcina Browser VM"; "brak awaryjnego
+# powrotu do bezpośredniego połączenia"), §16 ("awaria ma zawsze kończyć się
+# blokadą, nigdy połączeniem bez ochrony").
+#
+# Maps to aegis-core KillSwitchState::Engaged (crates/aegis-core/src/gateway.rs):
+# when the tunnel goes Failed/Down, gateway-controller applies THIS file. It
+# replaces the normal ruleset with an unconditional drop of everything except
+# loopback, so the Browser VM is instantly and totally isolated with no path —
+# not even a redirected one — to the outside.
+#
+# This is deliberately the smallest possible ruleset: there is no accept rule
+# that could leak, no established-state shortcut, no management exception on the
+# data path. Loopback only, so local health/IPC on the gateway keeps working and
+# gateway-controller can observe/report the engaged state.
+#
+# Apply (engage kill switch):
+#   nft -f firewall/nftables/killswitch.nft
+# Syntax check:
+#   nft -c -f firewall/nftables/killswitch.nft
+#
+# Release (re-arm) is done by re-applying the normal set AFTER a verified-safe
+# reconfiguration (see GatewayController::release_killswitch): flush, then load
+# ipv6-block.nft + nat-tor.nft + gateway.nft again. Never release implicitly.
+
+# Remove any live filtering/NAT tables so nothing can carry traffic while engaged.
+# (Deleting a table that does not exist is an error, so guard with a create+delete
+#  of an empty table; nft evaluates the file top-to-bottom.)
+table inet filter
+delete table inet filter
+table ip nat
+delete table ip nat
+
+# The only surviving table: a pure drop-all filter. Loopback excepted.
+table inet killswitch {
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif "lo" accept
+        # No established/related shortcut on purpose: total cut.
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        # Absolutely nothing is forwarded. The Browser VM cannot reach anything.
+    }
+
+    chain output {
+        type filter hook output priority filter; policy drop;
+        oif "lo" accept
+        # Even the gateway's own daemons cannot egress while isolated. Tor is
+        # expected to be down/failed here; keeping output dropped guarantees no
+        # half-open connection sneaks a packet out during the failure window.
+    }
+}

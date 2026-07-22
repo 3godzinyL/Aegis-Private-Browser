@@ -1,0 +1,115 @@
+#!/usr/sbin/nft -f
+#
+# Aegis Private Browser — Gateway VM transparent-proxy NAT (Tor mode).
+#
+# Spec references: promt.txt §5 (przechwytywanie DNS, tryb Tor), §14 (DNS nie
+# wychodzi poza Gateway). Renders the aegis-core FirewallPolicy fields:
+#   redirect_dns_to = Some(5353)  -> Tor DNSPort
+#   redirect_tcp_to = Some(9040)  -> Tor TransPort
+# (crates/aegis-core/src/gateway.rs, FirewallPolicy::fail_closed for NetworkMode::Tor).
+#
+# This table performs TRANSPARENT REDIRECTION of the Browser VM's traffic into
+# the local Tor instance so the browser needs no proxy configuration and CANNOT
+# bypass Tor:
+#   * DNS  (udp/tcp dport 53) from the browser subnet -> Tor DNSPort  (5353)
+#   * TCP  (all other dports)  from the browser subnet -> Tor TransPort (9040)
+#
+# Everything else (notably non-DNS UDP) is NOT redirected here; it is left to be
+# dropped by the filter forward chain (block_direct_udp = true in gateway.nft).
+#
+# Load order: apply this BEFORE gateway.nft so the redirect is in place when the
+# filter chains evaluate; the two tables are independent (`ip nat` vs `inet
+# filter`) but the input chain in gateway.nft matches the POST-redirect ports.
+#
+#   nft -c -f firewall/nftables/nat-tor.nft   # syntax check
+#   nft -f  firewall/nftables/nat-tor.nft     # apply
+#
+# ===========================================================================
+# PAIRED Tor configuration (torrc on the Gateway VM)
+# ===========================================================================
+# These lines MUST exist in the gateway's torrc for this NAT to work. The ports
+# and the VirtualAddrNetwork must match the values below and in gateway.nft.
+#
+#   # Listen on the downstream interface so the browser subnet can reach it, and
+#   # on loopback. Bind explicitly — do NOT use a wildcard that exposes upstream.
+#   DNSPort   10.152.152.1:5353
+#   DNSPort   127.0.0.1:5353
+#   TransPort 10.152.152.1:9040
+#   TransPort 127.0.0.1:9040
+#
+#   # Map .onion / DNS-resolved names into a virtual range so transparently
+#   # redirected TCP to those addresses is routed back through Tor.
+#   AutomapHostsOnResolve 1
+#   VirtualAddrNetworkIPv4 10.192.0.0/10
+#
+#   # Control port stays loopback-only (see gateway.nft mgmt_port note).
+#   ControlPort 127.0.0.1:9051
+#   CookieAuthentication 1
+#
+# Rationale for ports: 5353/9040 are the Aegis defaults wired in
+# FirewallPolicy::fail_closed. They are unprivileged (>1024) so Tor can bind
+# them without running as root (spec §10: "proces ... nie działa jako root").
+# ---------------------------------------------------------------------------
+
+define down_if       = "eth1"
+define up_if         = "eth0"
+define lan_net       = 10.152.152.0/24
+define gw_addr       = 10.152.152.1
+define tor_dnsport   = 5353
+define tor_transport = 9040
+
+# Tor's virtual address range (must equal VirtualAddrNetworkIPv4 in torrc).
+# TCP destined for this range is the result of AutomapHostsOnResolve and must be
+# redirected into Tor's TransPort just like any other TCP.
+define tor_virtual   = 10.192.0.0/10
+
+table ip nat
+delete table ip nat
+
+table ip nat {
+
+    # -----------------------------------------------------------------------
+    # PREROUTING — rewrite destinations of browser-subnet traffic before routing.
+    # -----------------------------------------------------------------------
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+
+        # Only ever touch traffic arriving from the downstream browser NIC/subnet.
+        # Traffic from anywhere else is left untouched (and will be dropped by the
+        # filter table if it is not otherwise allowed).
+        iif != $down_if return
+        ip saddr != $lan_net return
+
+        # 1) DNS capture: all port-53 traffic (UDP and TCP) -> Tor DNSPort.
+        #    This is what guarantees "DNS nie wychodzi poza Gateway" (§14): the
+        #    browser's resolver hits :53, we transparently answer from Tor's
+        #    DNSPort; no plaintext DNS can escape to the WAN.
+        meta l4proto udp udp dport 53 redirect to :$tor_dnsport
+        meta l4proto tcp tcp dport 53 redirect to :$tor_transport
+
+        # 2) Transparent TCP: everything else over TCP -> Tor TransPort. Includes
+        #    normal web traffic and the Tor virtual range (Automap results).
+        ip daddr $tor_virtual meta l4proto tcp redirect to :$tor_transport
+        meta l4proto tcp redirect to :$tor_transport
+
+        # 3) Non-DNS UDP is intentionally NOT redirected. It falls through to the
+        #    filter forward chain, which drops it (block_direct_udp). We do not
+        #    accept it here beyond the chain's default `policy accept`, because the
+        #    filter table — not this nat table — is the enforcement point.
+    }
+
+    # -----------------------------------------------------------------------
+    # POSTROUTING — masquerade only the gateway's OWN upstream traffic (Tor).
+    # Browser traffic is terminated by Tor locally and never routed out here, so
+    # this only ever rewrites source addresses of gateway-originated packets on
+    # the upstream NIC. Kept minimal.
+    # -----------------------------------------------------------------------
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+
+        # Masquerade gateway-originated traffic leaving via the upstream NIC so it
+        # takes the host-NAT source address. The browser subnet is NOT source-NATed
+        # to the WAN because it is never forwarded there (all TCP goes through Tor).
+        oif $up_if masquerade
+    }
+}

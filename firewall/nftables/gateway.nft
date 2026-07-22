@@ -1,0 +1,163 @@
+#!/usr/sbin/nft -f
+#
+# Aegis Private Browser — Gateway VM stateful firewall (default-deny).
+#
+# Spec references: promt.txt §5 ("Warstwa sieciowa", zasada fail-closed),
+# §10 (hardening / minimal privileged surface), §14 (kryteria akceptacji: sieć).
+#
+# This file is the `inet filter` half of the ruleset. It pairs with:
+#   * nat-tor.nft    — transparent DNS/TCP redirect into Tor (nat table)
+#   * ipv6-block.nft — the IPv6 default-block policy
+#   * killswitch.nft — the drop-all isolation state
+#
+# It renders the aegis-core `FirewallPolicy` (crates/aegis-core/src/gateway.rs):
+#   default_policy        = Drop            -> all base chains `policy drop`
+#   block_direct_udp      = true            -> only DNS(53)->DNSPort UDP is let
+#                                              through pre-redirect; nothing else
+#   reject_host_initiated = true            -> upstream (host/WAN) may only carry
+#                                              established/related return traffic
+#   ipv6                  = Block (default) -> see ipv6-block.nft
+#   redirect_dns_to/_tcp  = handled in nat-tor.nft
+#
+# Topology (Whonix-style two-NIC gateway, spec §3/§4):
+#
+#     Host NAT net ── [ up_if / WAN ] ── Gateway VM ── [ down_if / LAN ] ── Browser VM
+#                          upstream                        downstream
+#                                                          10.152.152.0/24
+#                                                          gw 10.152.152.1
+#
+# The Browser VM has exactly ONE NIC and its only route is to 10.152.152.1.
+# It never sees the host's physical interface or real public IP (spec §3).
+#
+# Fail-closed guarantee: base policy is `drop`. If Tor/tunnel dies, the redirect
+# in nat-tor.nft points at a dead port and the packet is simply dropped — there
+# is no accept rule that could let it fall back to a direct connection
+# (spec §16: "awaria ma zawsze kończyć się blokadą, nigdy połączeniem bez ochrony").
+#
+# Syntax check (where nft is available):   nft -c -f firewall/nftables/gateway.nft
+# Apply the whole set (order matters):     nft -f firewall/nftables/ipv6-block.nft
+#                                          nft -f firewall/nftables/nat-tor.nft
+#                                          nft -f firewall/nftables/gateway.nft
+
+# ---------------------------------------------------------------------------
+# Definitions. gateway-controller substitutes these from GatewayConfig before
+# applying (downstream_cidr, gateway_address, interface names). The values here
+# are the documented defaults used by the aegis-core tests.
+# ---------------------------------------------------------------------------
+define down_if   = "eth1"                 # downstream NIC facing the Browser VM
+define up_if     = "eth0"                 # upstream NIC facing the host NAT / WAN
+define lan_net   = 10.152.152.0/24        # downstream browser subnet (GatewayConfig.downstream_cidr)
+define gw_addr   = 10.152.152.1           # this gateway's downstream address (GatewayConfig.gateway_address)
+
+# Tor local service ports (must match torrc; see nat-tor.nft for the pairing).
+define tor_dnsport   = 5353               # FirewallPolicy.redirect_dns_to  (Tor DNSPort)
+define tor_transport = 9040               # FirewallPolicy.redirect_tcp_to  (Tor TransPort)
+
+# The management channel: the host↔gateway control path (Unix-socket-backed in
+# Aegis; if a TCP admin port is ever used it is pinned here). Only used to make
+# "reject_host_initiated" precise — host-initiated data traffic is not accepted.
+define mgmt_port = 9051                   # Tor ControlPort, loopback-only (see below)
+
+# Flush any prior ruleset in this table so re-applying is idempotent.
+table inet filter
+delete table inet filter
+
+table inet filter {
+
+    # -----------------------------------------------------------------------
+    # INPUT — traffic terminating on the gateway itself.
+    # Default drop. We accept loopback, established/related, and the browser
+    # subnet ONLY toward the services the gateway exposes to it (Tor's
+    # DNSPort/TransPort, reached transparently via the nat redirect + this ACK).
+    # -----------------------------------------------------------------------
+    chain input {
+        type filter hook input priority filter; policy drop;
+
+        # Loopback is always safe and required for local services.
+        iif "lo" accept
+
+        # Return traffic for connections the gateway itself opened (e.g. Tor
+        # reaching the network through the upstream NIC).
+        ct state established,related accept
+
+        # Drop obviously invalid packets early.
+        ct state invalid drop
+
+        # Downstream browser subnet may reach the transparently-redirected Tor
+        # ports on this gateway. The nat/prerouting rule (nat-tor.nft) has already
+        # rewritten the destination to gw_addr:tor_transport / gw_addr:tor_dnsport
+        # by the time the packet reaches the input hook, so we match those here.
+        iif $down_if ip saddr $lan_net ip daddr $gw_addr tcp dport $tor_transport accept
+        iif $down_if ip saddr $lan_net ip daddr $gw_addr udp dport $tor_dnsport   accept
+        iif $down_if ip saddr $lan_net ip daddr $gw_addr tcp dport $tor_dnsport   accept
+
+        # ICMP for path-MTU / diagnostics from the browser subnet only (echo is
+        # allowed so the browser VM can reach the gateway; it is NOT forwarded).
+        iif $down_if ip saddr $lan_net icmp type { echo-request, destination-unreachable } accept
+
+        # NOTE: the Tor ControlPort ($mgmt_port) is bound to 127.0.0.1 inside the
+        # gateway and is therefore covered by the `iif lo accept` rule above. It is
+        # never exposed on $up_if or $down_if. Host-initiated traffic on $up_if is
+        # not accepted here (reject_host_initiated = true) — only ct established
+        # return traffic is, which by definition the gateway solicited.
+
+        # Everything else (incl. any host-initiated flow on the upstream NIC)
+        # falls through to `policy drop`.
+    }
+
+    # -----------------------------------------------------------------------
+    # FORWARD — traffic routed THROUGH the gateway (browser <-> outside).
+    # This is the critical chain. Default drop. The browser is NEVER allowed to
+    # route directly to the upstream/WAN; all of its TCP is redirected into Tor
+    # (which originates its own upstream connections handled by the output chain),
+    # and all direct UDP is blocked (block_direct_udp = true), so there is nothing
+    # legitimate to forward. We keep this chain explicit and closed.
+    # -----------------------------------------------------------------------
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+
+        # Allow return traffic for already-established forwarded flows (if any
+        # non-transparent forwarding is ever enabled for a VPN/proxy mode). For
+        # pure Tor mode nothing is forwarded — Tor terminates locally.
+        ct state established,related accept
+        ct state invalid drop
+
+        # HARD BLOCK: direct UDP from the browser subnet to anywhere is dropped.
+        # DNS(53) is the only UDP that could be legitimate and it is intercepted
+        # by nat/prerouting REDIRECT into the local DNSPort before it can reach
+        # this chain, so a UDP/53 packet arriving here means the redirect failed —
+        # drop it rather than let it leak (spec §5, §14 "brak wycieku IPv6/DNS").
+        ip saddr $lan_net udp dport 53 drop
+        ip saddr $lan_net meta l4proto udp drop
+
+        # No other browser->WAN forwarding is permitted. Direct TCP to the WAN is
+        # likewise never forwarded: it is REDIRECTed to the local TransPort by
+        # nat-tor.nft, handled locally, and Tor makes the real upstream connection.
+        # Anything that reaches this point is dropped by policy.
+    }
+
+    # -----------------------------------------------------------------------
+    # OUTPUT — traffic originating on the gateway (mostly Tor -> upstream).
+    # Default drop, but the gateway's own daemons (Tor) must be able to reach the
+    # Internet through the upstream NIC. We allow loopback and established, plus
+    # new outbound connections on the upstream interface (that is the ONE path to
+    # the outside, and only Tor/tunnel processes run here).
+    # -----------------------------------------------------------------------
+    chain output {
+        type filter hook output priority filter; policy drop;
+
+        oif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+
+        # Gateway-originated (Tor/tunnel) traffic egresses via the upstream NIC.
+        # This is the single controlled path to the host NAT / Internet. Browser
+        # VM traffic never reaches here directly — it is always terminated by Tor
+        # locally first.
+        oif $up_if accept
+
+        # DNS from the gateway itself is not needed (Tor resolves over the
+        # circuit); if a mode requires it, it must go out $up_if and is covered
+        # above. Everything else drops.
+    }
+}
