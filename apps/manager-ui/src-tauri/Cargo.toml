@@ -1,0 +1,55 @@
+# Aegis Private Browser — manager UI (Tauri v2 desktop app).
+#
+# This crate is deliberately a STANDALONE cargo project: the empty `[workspace]`
+# table below detaches it from the parent Aegis workspace so the heavy WebView /
+# Tauri toolchain is never pulled into `cargo check` of the security-critical
+# host crates. It depends on the workspace crates purely by relative path.
+[package]
+name = "aegis-manager-ui"
+description = "Aegis Private Browser — desktop manager (Tauri v2)"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.82"
+license = "GPL-3.0-or-later"
+authors = ["Aegis Project"]
+repository = "https://example.invalid/aegis-browser"
+
+# Detach from the parent workspace: this is its own single-crate workspace.
+[workspace]
+
+[lib]
+name = "aegis_manager_ui_lib"
+# Tauri v2 keeps the app logic in a library so it can be shared with mobile
+# targets; the binary is a thin shim over it.
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[[bin]]
+name = "aegis-manager-ui"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# Internal crates, by relative path (parent workspace, not published).
+aegis-core = { path = "../../../crates/aegis-core" }
+aegis-ipc = { path = "../../../crates/aegis-ipc" }
+
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+chrono = { version = "0.4", features = ["serde", "clock"] }
+
+[features]
+# Enable custom-protocol serving of the bundled frontend in release builds.
+custom-protocol = ["tauri/custom-protocol"]
+
+[profile.release]
+panic = "abort"
+codegen-units = 1
+lto = true
+opt-level = "s"
+strip = true

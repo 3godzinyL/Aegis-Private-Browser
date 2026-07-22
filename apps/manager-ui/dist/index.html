@@ -1,0 +1,571 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aegis Private Browser</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div class="brand-text">
+        <h1 data-i18n="app_title">Aegis Private Browser</h1>
+        <p class="tagline" data-i18n="tagline">Disposable, isolated browsing environments</p>
+      </div>
+    </div>
+    <div class="topbar-actions">
+      <button id="btn-doctor" class="btn btn-ghost" type="button" data-i18n="btn_doctor">Run doctor</button>
+      <button id="btn-refresh" class="btn btn-ghost" type="button" data-i18n="btn_refresh">Refresh</button>
+      <button id="btn-new-session" class="btn btn-primary" type="button" data-i18n="btn_new_session">New Private Session</button>
+      <!-- Compact EN | PL language switcher (spec: default English). -->
+      <div class="lang-switch" role="group" aria-label="Language">
+        <button id="lang-en" class="lang-btn" type="button" data-lang="en">EN</button>
+        <span class="lang-sep" aria-hidden="true">|</span>
+        <button id="lang-pl" class="lang-btn" type="button" data-lang="pl">PL</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Non-alarmist standing disclaimer (spec §11, §16). -->
+  <div class="notice" role="note" data-i18n="notice">
+    Stronger protection can reduce site compatibility. Aegis reduces linkability and
+    hides your host IP through an isolated gateway &mdash; it does not make you
+    anonymous by default. Review the diagnostics panel before you rely on a session.
+  </div>
+
+  <div id="banner" class="banner hidden" role="alert"></div>
+
+  <main class="layout">
+    <!-- ============================ Profiles view ======================= -->
+    <section class="panel" id="profiles-panel">
+      <div class="panel-head">
+        <h2 data-i18n="profiles_title">Profiles</h2>
+        <button id="btn-toggle-create" class="btn btn-secondary" type="button" data-i18n="btn_new_profile">+ New profile</button>
+      </div>
+
+      <!-- ================= Two-tab "New Private Session" modal ============ -->
+      <!-- A well-managed, two-tab flow. Tab 1 (Setup) walks top-to-bottom:
+           platform → name/type → four one-click safety tiers → an expandable
+           Advanced section. Tab 2 (Preview) shows exactly what a site will see,
+           computed from aegis-core ProfileSpec::preview() and updated live. -->
+      <div id="create-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
+        <form id="create-form" class="create-modal" autocomplete="off">
+          <div class="modal-head">
+            <div>
+              <h2 id="create-modal-title" data-i18n="create_title">New Private Session</h2>
+              <p class="modal-sub" data-i18n="create_sub">Configure a fresh, isolated browsing profile. Sensible, safe defaults are pre-selected.</p>
+            </div>
+            <button type="button" id="btn-close-create" class="btn btn-ghost btn-mini" aria-label="Close" data-i18n="btn_cancel">Cancel</button>
+          </div>
+
+          <!-- Tab strip. -->
+          <div class="modal-tabs" role="tablist" aria-label="New session tabs">
+            <button type="button" id="tab-setup" class="modal-tab active" role="tab" aria-selected="true" aria-controls="pane-setup" data-tab="setup" data-i18n="tab_setup">Setup</button>
+            <button type="button" id="tab-preview" class="modal-tab" role="tab" aria-selected="false" aria-controls="pane-preview" data-tab="preview" data-i18n="tab_preview">Preview</button>
+          </div>
+
+          <div class="modal-body">
+            <!-- ============================ TAB 1 — Setup =================== -->
+            <!-- Guided, one-screen flow: the eye travels top-to-bottom through the
+                 three big choices (platform → safety → name), reads a live plain-
+                 language summary of what will happen, then hits one big button. -->
+            <div id="pane-setup" class="tab-pane" role="tabpanel" aria-labelledby="tab-setup">
+              <!-- STEP 1 — PLATFORM: the first, most prominent choice. Two BIG cards.
+                   Sets isolation and gates the VM-only options in Advanced. -->
+              <section class="form-card step-card">
+                <div class="form-card-head">
+                  <span class="step-num" aria-hidden="true">1</span>
+                  <span class="form-card-title" data-i18n="sec_platform">Where should it run?</span>
+                  <span class="form-card-note" data-i18n="sec_platform_note">Where the browser actually runs. This sets your isolation.</span>
+                </div>
+                <div class="bigcard-grid" id="cf-isolation" data-field="isolation">
+                  <label class="bigcard">
+                    <input type="radio" name="isolation" value="full-vm" checked />
+                    <span class="bigcard-body">
+                      <span class="bigcard-title" data-i18n="opt_iso_full">Linux &mdash; full VM isolation</span>
+                      <span class="bigcard-tagline" data-i18n="opt_iso_full_tag">max protection</span>
+                      <span class="bigcard-desc" data-i18n="opt_iso_full_desc">Runs in a dedicated VM behind a gateway. Strongest protection. Needs Linux/KVM.</span>
+                    </span>
+                  </label>
+                  <label class="bigcard">
+                    <input type="radio" name="isolation" value="host-process" />
+                    <span class="bigcard-body">
+                      <span class="bigcard-title" data-i18n="opt_iso_host">Windows / macOS &mdash; host browser</span>
+                      <span class="bigcard-tagline bigcard-tagline-warn" data-i18n="opt_iso_host_tag">reduced protection</span>
+                      <span class="bigcard-desc" data-i18n="opt_iso_host_desc">Runs your host browser through Tor/proxy. Reduced protection. Some options are unavailable.</span>
+                    </span>
+                  </label>
+                </div>
+                <p id="cf-iso-note" class="inline-note inline-note-warn hidden" data-i18n="iso_host_note">
+                  Host mode: the site runs on your real operating system. Only your IP is hidden (via Tor/proxy) and your fingerprint is normalized &mdash; you are NOT in an isolated VM. This is weaker protection, not anonymity.
+                </p>
+              </section>
+
+              <!-- STEP 2 — HOW SAFE: the four SafetyPreset tiers as BIG tiles. One
+                   click picks protection + fingerprint preset. Balanced pre-selected. -->
+              <section class="form-card step-card">
+                <div class="form-card-head">
+                  <span class="step-num" aria-hidden="true">2</span>
+                  <span class="form-card-title" data-i18n="sec_safety">How safe do you want to be?</span>
+                  <span class="form-card-note" data-i18n="sec_safety_note">One click sets protection + fingerprint. Fine-tune in Advanced.</span>
+                </div>
+                <div class="tier-grid" id="cf-safety" data-field="safety">
+                  <label class="tier">
+                    <input type="radio" name="safety" value="compatibility" />
+                    <span class="tier-body">
+                      <span class="tier-title" data-i18n="tier_compatibility">Compatibility</span>
+                      <span class="tier-desc" data-i18n="tier_compatibility_desc">Loosest &mdash; best site compatibility, still hides your host.</span>
+                    </span>
+                  </label>
+                  <label class="tier">
+                    <input type="radio" name="safety" value="balanced" checked />
+                    <span class="tier-body">
+                      <span class="tier-title" data-i18n="tier_balanced">Balanced</span>
+                      <span class="tier-desc" data-i18n="tier_balanced_desc">Recommended &mdash; most sites work, strong unlinkability.</span>
+                    </span>
+                  </label>
+                  <label class="tier">
+                    <input type="radio" name="safety" value="strict" />
+                    <span class="tier-body">
+                      <span class="tier-title" data-i18n="tier_strict">Strict</span>
+                      <span class="tier-desc" data-i18n="tier_strict_desc">Stronger &mdash; more uniform fingerprint, some sites break.</span>
+                    </span>
+                  </label>
+                  <label class="tier">
+                    <input type="radio" name="safety" value="paranoid" />
+                    <span class="tier-body">
+                      <span class="tier-title" data-i18n="tier_paranoid">Paranoid</span>
+                      <span class="tier-desc" data-i18n="tier_paranoid_desc">Tightest &mdash; maximum uniformity, expect breakage.</span>
+                    </span>
+                  </label>
+                </div>
+              </section>
+
+              <!-- STEP 3 — NAME: a single field. If left blank we auto-generate one
+                   so the user is never blocked. -->
+              <section class="form-card step-card">
+                <div class="form-card-head">
+                  <span class="step-num" aria-hidden="true">3</span>
+                  <span class="form-card-title" data-i18n="sec_name">Give it a name (optional)</span>
+                  <span class="form-card-note" data-i18n="sec_name_note">A label just for you. Not sent to any website. Blank = auto-named.</span>
+                </div>
+                <div class="field">
+                  <input id="cf-name" name="name" type="text" maxlength="64" data-i18n-attr="placeholder" data-i18n="field_name_ph" placeholder="Session 1" />
+                </div>
+              </section>
+
+              <!-- (d) Advanced — collapsed; fine-tune ON TOP of the preset. --- -->
+              <section class="form-card adv-section">
+                <button type="button" id="cf-adv-toggle" class="adv-toggle" aria-expanded="false" aria-controls="cf-adv-body">
+                  <span class="adv-toggle-caret" aria-hidden="true">&rsaquo;</span>
+                  <span class="adv-toggle-label" data-i18n="sec_advanced">Advanced (fine-tune on top of the preset)</span>
+                </button>
+                <div id="cf-adv-body" class="adv-body hidden">
+                  <!-- Profile type (persistence). -->
+                  <div class="adv-group">
+                    <div class="form-card-head">
+                      <span class="form-card-title" data-i18n="sec_type">Type</span>
+                      <span class="form-card-note" data-i18n="sec_type_note">Whether anything is kept between sessions.</span>
+                    </div>
+                    <div class="choice-grid" id="cf-kind" data-field="kind">
+                      <label class="choice">
+                        <input type="radio" name="kind" value="ephemeral" checked />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_ephemeral">Ephemeral (leaves nothing behind)</span>
+                          <span class="choice-desc" data-i18n="opt_ephemeral_desc">Destroyed at close. Nothing is written to disk.</span>
+                        </span>
+                      </label>
+                      <label class="choice">
+                        <input type="radio" name="kind" value="persistent" />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_persistent">Persistent (encrypted volume)</span>
+                          <span class="choice-desc" data-i18n="opt_persistent_desc">Re-openable, stored in an encrypted volume.</span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Browser engine. -->
+                  <div class="adv-group">
+                    <div class="form-card-head">
+                      <span class="form-card-title" data-i18n="sec_browser">Browser engine</span>
+                      <span class="form-card-note" data-i18n="sec_browser_note">Which engine renders the pages.</span>
+                    </div>
+                    <div class="choice-grid" id="cf-browser" data-field="browser">
+                      <label class="choice">
+                        <input type="radio" name="browser" value="chromium" checked />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_chromium">Chromium</span>
+                          <span class="choice-desc" data-i18n="opt_chromium_desc">Hardened Chromium. Best site compatibility.</span>
+                        </span>
+                      </label>
+                      <label class="choice">
+                        <input type="radio" name="browser" value="firefox" />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_firefox">Firefox / Tor Browser</span>
+                          <span class="choice-desc" data-i18n="opt_firefox_desc">Gecko engine with a uniform Tor-Browser user-agent.</span>
+                        </span>
+                      </label>
+                    </div>
+                  </div>
+
+                  <!-- Network. -->
+                  <div class="adv-group">
+                    <div class="form-card-head">
+                      <span class="form-card-title" data-i18n="sec_network">Network</span>
+                      <span class="form-card-note" data-i18n="sec_network_note">How this profile reaches the internet.</span>
+                    </div>
+                    <div class="choice-grid choice-grid-4" id="cf-network" data-field="network_mode">
+                      <label class="choice">
+                        <input type="radio" name="network_mode" value="tor" checked />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_tor">Tor</span>
+                          <span class="choice-desc" data-i18n="opt_tor_desc">Routes through the Tor network. Strongest IP hiding.</span>
+                        </span>
+                      </label>
+                      <label class="choice">
+                        <input type="radio" name="network_mode" value="socks5" />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_socks5">SOCKS5 proxy</span>
+                          <span class="choice-desc" data-i18n="opt_socks5_desc">Your own SOCKS5 server. DNS resolved remotely.</span>
+                        </span>
+                      </label>
+                      <label class="choice">
+                        <input type="radio" name="network_mode" value="http" />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_http">HTTP proxy</span>
+                          <span class="choice-desc" data-i18n="opt_http_desc">An HTTP CONNECT proxy. DNS resolved remotely.</span>
+                        </span>
+                      </label>
+                      <label class="choice" id="cf-network-vpn">
+                        <input type="radio" name="network_mode" value="vpn" />
+                        <span class="choice-body">
+                          <span class="choice-title" data-i18n="opt_vpn">VPN <span class="choice-tag" data-i18n="tag_full_vm_only">full-VM only</span></span>
+                          <span class="choice-desc" data-i18n="opt_vpn_desc">Configured via the CLI (needs endpoint + stored credentials).</span>
+                        </span>
+                      </label>
+                    </div>
+
+                    <!-- Tor sub-fields (bridges). -->
+                    <div id="cf-tor-fields" class="net-subfields">
+                      <div class="field">
+                        <label for="cf-bridges" data-i18n="field_bridges">Bridges (optional)</label>
+                        <textarea id="cf-bridges" name="bridges" rows="3" data-i18n-attr="placeholder" data-i18n="field_bridges_ph" placeholder="obfs4 1.2.3.4:443 CERT ..."></textarea>
+                        <span class="field-hint" data-i18n="field_bridges_hint">One bridge line per row. Leave empty to connect to Tor directly.</span>
+                      </div>
+                    </div>
+
+                    <!-- Proxy sub-fields (host + port + optional user:pass). -->
+                    <div id="cf-proxy-fields" class="net-subfields hidden">
+                      <div class="field-row">
+                        <div class="field field-grow">
+                          <label for="cf-proxy-host" data-i18n="field_proxy_host">Host</label>
+                          <input id="cf-proxy-host" name="proxy_host" type="text" data-i18n-attr="placeholder" data-i18n="field_proxy_host_ph" placeholder="127.0.0.1" />
+                        </div>
+                        <div class="field field-port">
+                          <label for="cf-proxy-port" data-i18n="field_proxy_port">Port</label>
+                          <input id="cf-proxy-port" name="proxy_port" type="number" min="1" max="65535" data-i18n-attr="placeholder" data-i18n="field_proxy_port_ph" placeholder="1080" />
+                        </div>
+                      </div>
+                      <div class="field">
+                        <label for="cf-proxy-creds" data-i18n="field_proxy_creds">Credentials (optional)</label>
+                        <input id="cf-proxy-creds" name="proxy_credentials" type="text" autocomplete="off" data-i18n-attr="placeholder" data-i18n="field_proxy_creds_ph" placeholder="user:pass" />
+                        <span class="field-hint" data-i18n="field_proxy_creds_hint">Stored as a reference in secure storage &mdash; the password is never logged.</span>
+                      </div>
+                      <span id="cf-proxy-error" class="field-error hidden" data-i18n="err_proxy_host">Enter a proxy host and port.</span>
+                    </div>
+
+                    <!-- VPN note. -->
+                    <p id="cf-vpn-note" class="inline-note hidden" data-i18n="vpn_note">
+                      VPN needs an endpoint and stored credentials, so it is set up through the CLI/config. In host mode, use Tor or a proxy instead.
+                    </p>
+                  </div>
+
+                  <!-- Fingerprint switches (build a custom override). -->
+                  <div class="adv-group">
+                    <div class="form-card-head">
+                      <span class="form-card-title" data-i18n="sec_fingerprint">Fingerprint (override the preset)</span>
+                      <span class="form-card-note" data-i18n="sec_fingerprint_note">Each switch overrides the preset for this profile only.</span>
+                    </div>
+                    <div class="fp-grid">
+                      <label class="fp-row">
+                        <span class="fp-label" data-i18n="fp_webgl">WebGL</span>
+                        <select id="cf-fp-webgl" name="fp_webgl">
+                          <option value="virtual-backend" data-i18n="fp_webgl_virtual">Virtual backend</option>
+                          <option value="restricted" data-i18n="fp_webgl_restricted">Restricted</option>
+                          <option value="disabled" data-i18n="fp_webgl_disabled">Disabled</option>
+                        </select>
+                      </label>
+                      <label class="fp-row fp-row-check">
+                        <span class="fp-label" data-i18n="fp_webgpu">WebGPU</span>
+                        <input type="checkbox" id="cf-fp-webgpu" name="fp_webgpu" class="toggle-input" />
+                      </label>
+                      <label class="fp-row fp-row-check">
+                        <span class="fp-label" data-i18n="fp_canvas">Limit Canvas readback</span>
+                        <input type="checkbox" id="cf-fp-canvas" name="fp_canvas" class="toggle-input" />
+                      </label>
+                      <label class="fp-row fp-row-check">
+                        <span class="fp-label" data-i18n="fp_letterbox">Letterboxing</span>
+                        <input type="checkbox" id="cf-fp-letterbox" name="fp_letterbox" class="toggle-input" />
+                      </label>
+                      <label class="fp-row">
+                        <span class="fp-label" data-i18n="fp_cores">CPU cores (0 = real)</span>
+                        <input type="number" id="cf-fp-cores" name="fp_cores" min="0" max="128" class="fp-num" />
+                      </label>
+                      <label class="fp-row">
+                        <span class="fp-label" data-i18n="fp_timezone">Timezone</span>
+                        <input type="text" id="cf-fp-timezone" name="fp_timezone" class="fp-text" data-i18n-attr="placeholder" data-i18n="fp_timezone_ph" placeholder="UTC" />
+                      </label>
+                      <label class="fp-row">
+                        <span class="fp-label" data-i18n="fp_language">Language</span>
+                        <input type="text" id="cf-fp-language" name="fp_language" class="fp-text" data-i18n-attr="placeholder" data-i18n="fp_language_ph" placeholder="en-US" />
+                      </label>
+                    </div>
+                    <p class="field-hint" data-i18n="fp_hint">Non-negotiable rules still apply: device APIs stay blocked and WebGPU stays off in Strict/Paranoid.</p>
+                  </div>
+                </div>
+              </section>
+            </div>
+
+            <!-- ========================== TAB 2 — Preview ================== -->
+            <div id="pane-preview" class="tab-pane hidden" role="tabpanel" aria-labelledby="tab-preview">
+              <p class="preview-intro" data-i18n="preview_intro">This is exactly what a website will observe for this profile. It updates as you change the setup.</p>
+              <div id="cf-preview-error" class="inline-note inline-note-warn hidden"></div>
+              <div class="preview-grid" id="cf-preview-grid">
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_browser">Browser</span>
+                  <span class="preview-val" id="pv-browser">&mdash;</span>
+                </div>
+                <div class="preview-row preview-row-wide">
+                  <span class="preview-key" data-i18n="pv_user_agent">User-Agent</span>
+                  <span class="preview-val mono" id="pv-user-agent">&mdash;</span>
+                  <span class="preview-note" data-i18n="pv_user_agent_note">Representative &mdash; the real engine version is used at runtime.</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_isolation">Isolation</span>
+                  <span class="preview-val" id="pv-isolation">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_network">Network</span>
+                  <span class="preview-val" id="pv-network">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_protection">Protection</span>
+                  <span class="preview-val" id="pv-protection">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_timezone">Timezone</span>
+                  <span class="preview-val" id="pv-timezone">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_language">Language</span>
+                  <span class="preview-val" id="pv-language">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_cores">CPU cores</span>
+                  <span class="preview-val" id="pv-cores">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_webgl">WebGL</span>
+                  <span class="preview-val" id="pv-webgl">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_webgpu">WebGPU</span>
+                  <span class="preview-val" id="pv-webgpu">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_canvas">Canvas</span>
+                  <span class="preview-val" id="pv-canvas">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_letterbox">Letterboxing</span>
+                  <span class="preview-val" id="pv-letterbox">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_timer">Timer precision</span>
+                  <span class="preview-val" id="pv-timer">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_device_apis">Device APIs blocked</span>
+                  <span class="preview-val" id="pv-device-apis">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_media">Media devices limited</span>
+                  <span class="preview-val" id="pv-media">&mdash;</span>
+                </div>
+                <div class="preview-row">
+                  <span class="preview-key" data-i18n="pv_battery">Battery / Sensors off</span>
+                  <span class="preview-val" id="pv-battery-sensors">&mdash;</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-foot">
+            <!-- Live plain-language summary of exactly what the button will do,
+                 recomputed from the current selection. Visually distinct. -->
+            <div id="cf-summary" class="setup-summary" role="status" aria-live="polite"></div>
+            <div class="modal-foot-row">
+              <div class="modal-foot-hint" data-i18n="create_foot_hint">Stronger protection can reduce site compatibility. Aegis is not "100% anonymous".</div>
+              <div class="modal-foot-actions">
+                <button type="button" id="btn-cancel-create" class="btn btn-ghost" data-i18n="btn_cancel">Cancel</button>
+                <button type="button" id="btn-create" class="btn btn-secondary" data-i18n="btn_create_only">Create only</button>
+                <button type="submit" id="btn-create-start" class="btn btn-primary btn-cta" data-i18n="btn_create_start">Create &amp; start</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <div class="table-wrap">
+        <table class="grid" id="profiles-table">
+          <thead>
+            <tr>
+              <th data-i18n="th_name">Name</th>
+              <th data-i18n="th_type">Type</th>
+              <th data-i18n="th_network">Network</th>
+              <th data-i18n="th_protection">Protection</th>
+              <th data-i18n="th_gateway">Gateway</th>
+              <th data-i18n="th_public_ip">Public IP</th>
+              <th data-i18n="th_age">Age</th>
+              <th data-i18n="th_size">Size</th>
+              <th data-i18n="th_last_run">Last run</th>
+              <th class="col-actions" data-i18n="th_actions">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="profiles-body">
+            <tr class="empty-row"><td colspan="10" data-i18n="loading_profiles">Loading profiles&hellip;</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ========================== Diagnostics panel ===================== -->
+    <section class="panel" id="diagnostics-panel">
+      <div class="panel-head">
+        <h2 data-i18n="diagnostics_title">Diagnostics</h2>
+        <select id="session-select" class="session-select">
+          <option value="" data-i18n="no_active_session">No active session</option>
+        </select>
+      </div>
+
+      <div class="badge-row">
+        <div id="protection-badge" class="protection-badge badge-none">
+          <span class="badge-dot" aria-hidden="true"></span>
+          <span id="protection-label" data-i18n="prot_none">no protection</span>
+        </div>
+        <div class="badge-meta" id="badge-meta"></div>
+      </div>
+
+      <div class="diag-grid">
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_public_ip">Public IP (from session)</span>
+          <span class="diag-val" id="diag-public-ip">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_dns">DNS</span>
+          <span class="diag-val" id="diag-dns">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_ipv6">IPv6</span>
+          <span class="diag-val" id="diag-ipv6">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_webrtc">WebRTC</span>
+          <span class="diag-val" id="diag-webrtc">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_devices">Available devices</span>
+          <span class="diag-val" id="diag-devices">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_render">Render mode</span>
+          <span class="diag-val" id="diag-render">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_persistence">Profile persistence</span>
+          <span class="diag-val" id="diag-persistence">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <span class="diag-key" data-i18n="diag_killswitch">Kill-switch activity</span>
+          <span class="diag-val" id="diag-killswitch">&mdash;</span>
+        </div>
+      </div>
+
+      <h3 class="subhead" data-i18n="preflight_checks">Preflight checks</h3>
+      <ul class="checklist" id="checklist">
+        <li class="check-empty" data-i18n="select_session_checks">Select a session to view its preflight checks.</li>
+      </ul>
+
+      <h3 class="subhead" data-i18n="subsystem_details">Subsystem details</h3>
+      <ul class="items-list" id="items-list">
+        <li class="check-empty" data-i18n="no_details">No details.</li>
+      </ul>
+    </section>
+
+    <!-- ============================ Advanced section ==================== -->
+    <section class="panel panel-wide" id="advanced-panel">
+      <div class="panel-head">
+        <h2 data-i18n="advanced_title">Advanced</h2>
+        <button id="btn-refresh-status" class="btn btn-ghost btn-mini" type="button" data-i18n="btn_refresh_status">Refresh status</button>
+      </div>
+
+      <div class="adv-status">
+        <div class="adv-stat">
+          <span class="adv-key" data-i18n="adv_platform">Platform</span>
+          <span class="adv-val mono" id="adv-platform">&mdash;</span>
+        </div>
+        <div class="adv-stat">
+          <span class="adv-key" data-i18n="adv_version">Daemon version</span>
+          <span class="adv-val mono" id="adv-version">&mdash;</span>
+        </div>
+        <div class="adv-stat">
+          <span class="adv-key" data-i18n="adv_isolation">Isolation level</span>
+          <span class="isolation-badge iso-unknown" id="isolation-badge" data-i18n="iso_unknown">unknown</span>
+        </div>
+      </div>
+
+      <!-- Bilingual reduced-protection warning; shown only when isolation is OFF. -->
+      <div id="reduced-warning" class="reduced-warning hidden" role="alert" data-i18n="reduced_warning">
+      </div>
+
+      <h3 class="subhead" data-i18n="enforcement_title">Containment enforcement</h3>
+      <div class="toggle-list">
+        <label class="toggle-row" for="tg-vm">
+          <input type="checkbox" id="tg-vm" class="toggle-input" />
+          <span class="toggle-text">
+            <span class="toggle-label" data-i18n="tg_require_vm">Require VM isolation</span>
+            <span class="toggle-hint" data-i18n="tg_require_vm_hint">Browser runs in a dedicated VM.</span>
+          </span>
+        </label>
+        <label class="toggle-row" for="tg-gateway">
+          <input type="checkbox" id="tg-gateway" class="toggle-input" />
+          <span class="toggle-text">
+            <span class="toggle-label" data-i18n="tg_require_gateway">Require gateway VM</span>
+            <span class="toggle-hint" data-i18n="tg_require_gateway_hint">Network path runs through a dedicated gateway VM.</span>
+          </span>
+        </label>
+        <label class="toggle-row" for="tg-host-browser">
+          <input type="checkbox" id="tg-host-browser" class="toggle-input" />
+          <span class="toggle-text">
+            <span class="toggle-label" data-i18n="tg_allow_host">Allow host browser (Windows mode)</span>
+            <span class="toggle-hint" data-i18n="tg_allow_host_hint">Run the browser directly on the host through a proxy/Tor.</span>
+          </span>
+        </label>
+      </div>
+      <p class="adv-note" id="adv-note" data-i18n="adv_note">
+        Full VM isolation is the secure default. Relaxing it trades protection for the ability to run without a hypervisor.
+      </p>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="daemon-status" class="daemon-status" data-i18n="daemon_unknown">Daemon: unknown</span>
+    <span class="footer-note" data-i18n="footer_note">Aegis never claims to make you fully anonymous or undetectable.</span>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>
