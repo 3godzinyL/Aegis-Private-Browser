@@ -27,20 +27,19 @@ render a direct image URL in README. Keep the descriptive alt text.
     </td>
     <td width="50%" align="center">
       <strong>Screenshot 2 — new private session</strong><br/>
-      <sub>Paste the direct Discord image URL here.</sub>
-      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_2" alt="Aegis new private session" width="100%"/> -->
+      
+  <img src="https://cdn.discordapp.com/attachments/1307535965123903489/1529486389241057491/image.png?ex=6a621cb3&is=6a60cb33&hm=f84464beb2991fbe7b937611432048cc02fea802cce7215fdfc05325b72d33cf&" width="100%"/> 
     </td>
   </tr>
   <tr>
     <td width="50%" align="center">
       <strong>Screenshot 3 — runtime diagnostics</strong><br/>
-      <sub>Paste the direct Discord image URL here.</sub>
-      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_3" alt="Aegis runtime diagnostics" width="100%"/> -->
+
+   <img src="https://cdn.discordapp.com/attachments/1307535965123903489/1529486443322278058/image.png?ex=6a621cc0&is=6a60cb40&hm=f86109f102a01f321d758fe822fd81565200c18cb706e7c5489d8ea4a9e310a6&" alt="Aegis runtime diagnostics" width="100%"/> -->
     </td>
     <td width="50%" align="center">
       <strong>Screenshot 4 — what websites can see</strong><br/>
-      <sub>Paste the direct Discord image URL here.</sub>
-      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_4" alt="Aegis website visibility panel" width="100%"/> -->
+   <img src="https://cdn.discordapp.com/attachments/1307535965123903489/1529486745777999984/image.png?ex=6a621d08&is=6a60cb88&hm=b79d9e473b019c46ed0303c031541b8b0f75a8b141e6546e04f4219228f44dae&" alt="Aegis website visibility panel" width="100%"/> 
     </td>
   </tr>
 </table>
