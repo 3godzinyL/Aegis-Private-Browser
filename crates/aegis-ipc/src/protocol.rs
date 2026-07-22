@@ -17,7 +17,7 @@
 use aegis_core::config::{Enforcement, IsolationLevel};
 use aegis_core::health::DiagnosticItem;
 use aegis_core::ids::{ProfileId, SessionId};
-use aegis_core::preflight::ConnectivityChecklist;
+use aegis_core::preflight::{ConnectivityChecklist, ProtectionStatus};
 use aegis_core::profile::{Profile, ProfilePatch, ProfileSpec};
 use aegis_core::session::{SessionRequest, SessionSummary};
 use aegis_core::update::{ApplyOutcome, UpdateManifest, VersionInfo};
@@ -151,6 +151,10 @@ pub enum Response {
     /// Reply to [`Request::GetDiagnostics`] — the connectivity checklist plus
     /// the diagnostics-panel items.
     Diagnostics {
+        /// Aggregate status recorded by the session lifecycle. This is carried
+        /// explicitly because reduced host-process sessions are intentionally
+        /// `Partial` even though their VM-only checks are unavailable.
+        protection: ProtectionStatus,
         /// The preflight connectivity checklist for the session.
         checklist: ConnectivityChecklist,
         /// Per-subsystem diagnostics items.
@@ -343,6 +347,7 @@ mod tests {
             Response::Session(sample_summary()),
             Response::Sessions(vec![sample_summary()]),
             Response::Diagnostics {
+                protection: ProtectionStatus::Active,
                 checklist: sample_checklist(),
                 items: vec![DiagnosticItem::new("dns", HealthLevel::Ok, "verified")],
             },

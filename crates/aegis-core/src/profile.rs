@@ -104,9 +104,9 @@ impl ProfileSpec {
             .unwrap_or_else(|| self.protection.policy())
     }
 
-    /// A human-facing preview of exactly what this profile will present to
-    /// websites (User-Agent, timezone, language, WebGL/WebGPU, etc.). Used by the
-    /// UI's "Preview" tab.
+    /// A human-facing preview of what this profile is configured to present to
+    /// websites (User-Agent, timezone, language, WebGL/WebGPU, etc.). Runtime
+    /// measurements are reported separately by diagnostics.
     #[must_use]
     pub fn preview(&self) -> crate::preview::ProfilePreview {
         crate::preview::ProfilePreview::from_spec(self)

@@ -449,6 +449,30 @@ async fn request_handler_maps_operations() {
         other => panic!("expected Sessions, got {other:?}"),
     }
 
+    // Diagnostics must preserve the exact auditor checklist and attach explicit
+    // evidence provenance; it must not synthesize generic "verified" passes
+    // from the aggregate protection state.
+    match handler.handle(Request::GetDiagnostics(session_id)).await {
+        Response::Diagnostics {
+            protection,
+            checklist,
+            items,
+        } => {
+            assert_eq!(protection, aegis_core::preflight::ProtectionStatus::Active);
+            assert_eq!(checklist.reports.len(), 6);
+            assert!(checklist.reports.iter().all(|r| r.outcome.is_pass()));
+            assert!(checklist.reports.iter().all(|r| r.detail != "verified"));
+            assert!(items.iter().any(|i| {
+                i.key == "cohort_profile"
+                    && i.evidence == aegis_core::health::EvidenceState::Configured
+            }));
+            assert!(items.iter().any(|i| {
+                i.key == "gateway" && i.evidence == aegis_core::health::EvidenceState::Verified
+            }));
+        }
+        other => panic!("expected Diagnostics, got {other:?}"),
+    }
+
     // StopSession => Session(Destroyed).
     match handler.handle(Request::StopSession(session_id)).await {
         Response::Session(s) => assert_eq!(s.state, SessionState::Destroyed),

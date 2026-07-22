@@ -1,11 +1,12 @@
-//! A human-readable preview of what a profile will present to websites.
+//! A human-readable preview of the values a profile is configured to present.
 //!
 //! This powers the UI's **Preview** tab: before you create a session you can see
-//! exactly the environment a site will observe — the (representative) User-Agent,
+//! inspect the configured target environment — the representative User-Agent,
 //! the pinned timezone and language, the WebGL/WebGPU/Canvas treatment, the
 //! reported CPU count, which device APIs are blocked, the isolation level, and
-//! the network route. Everything here is *derived* from the profile spec, so the
-//! preview can never drift from what the launcher actually applies.
+//! the network route. Everything here is *derived* from the profile spec. It is
+//! not runtime evidence; the diagnostics path separately reports values measured
+//! inside the running browser environment.
 
 use crate::browser::BrowserBackendId;
 use crate::config::IsolationLevel;
@@ -13,7 +14,7 @@ use crate::fingerprint::{CanvasMode, LetterboxMode, ProtectionLevel, WebGlMode};
 use crate::profile::ProfileSpec;
 use serde::{Deserialize, Serialize};
 
-/// A resolved, display-friendly summary of a profile's observable properties.
+/// A resolved, display-friendly summary of configured observable properties.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProfilePreview {
     /// Browser engine family.

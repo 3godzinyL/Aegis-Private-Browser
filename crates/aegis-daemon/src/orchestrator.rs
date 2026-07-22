@@ -22,10 +22,10 @@ use crate::host_probe::HostNetworkProbe;
 use aegis_core::browser::{BrowserHandle, BrowserLaunchRequest};
 use aegis_core::config::{AppConfig, Enforcement, IsolationLevel};
 use aegis_core::events::{AuditRecord, EventKind, Severity};
-use aegis_core::gateway::{FirewallPolicy, GatewayConfig};
+use aegis_core::gateway::{FirewallPolicy, GatewayConfig, GatewayHealth};
 use aegis_core::ids::{InstanceId, SessionId, VmId};
 use aegis_core::network::NetworkMode;
-use aegis_core::preflight::ProtectionStatus;
+use aegis_core::preflight::{CheckId, CheckReport, ConnectivityChecklist, ProtectionStatus};
 use aegis_core::secure::SecretKey;
 use aegis_core::session::{SessionState, SessionSummary};
 use aegis_core::traits::{
@@ -166,6 +166,10 @@ struct SessionEntry {
     protection: ProtectionStatus,
     /// The observed public IP, if preflight produced one.
     public_ip: Option<String>,
+    /// The exact reports returned by the last real preflight run. Diagnostics
+    /// must use these reports rather than reconstructing passes from an
+    /// aggregate protection status.
+    checklist: Option<ConnectivityChecklist>,
     /// The ephemeral RAM key protecting this session's disposable overlays. It
     /// lives only in memory and is dropped (zeroized) on teardown.
     _ram_key: SecretKey,
@@ -546,6 +550,7 @@ impl Orchestrator {
                     browser_handle: None,
                     protection: ProtectionStatus::None,
                     public_ip: None,
+                    checklist: None,
                     _ram_key: ram_key,
                 },
             );
@@ -646,6 +651,7 @@ impl Orchestrator {
             if let Some(entry) = table.get_mut(&session_id) {
                 entry.protection = checklist.status();
                 entry.public_ip = checklist.observed_ip.as_ref().map(|o| o.ip.clone());
+                entry.checklist = Some(checklist.clone());
             }
         }
 
@@ -663,14 +669,21 @@ impl Orchestrator {
         }
 
         // 7. Only now: render the browser policy, assert it is safe, and launch.
-        self.transition(session_id, SessionState::Browsing)?;
+        // The lifecycle may enter `Browsing` only after launch returned a real
+        // handle and the handle is stored for reliable teardown.
         let launch_req = self.browser_launch_request(session_id, profile, &gw_cfg);
         // render_policy internally calls assert_safe; do it explicitly too so a
         // tampered/forbidden flag is caught before any launch.
         let bundle = self.caps.browser.render_policy(&launch_req)?;
         bundle.assert_safe(launch_req.production)?;
         let handle = self.caps.browser.launch(&launch_req, &bundle).await?;
-        self.set_browser_handle(session_id, handle)?;
+        self.set_browser_handle(session_id, handle.clone())?;
+        if !self.caps.browser.is_running(&handle).await? {
+            return Err(Error::System(
+                "browser launch returned without a live browser process".into(),
+            ));
+        }
+        self.transition(session_id, SessionState::Browsing)?;
 
         // Best-effort: record the launch timestamp on the profile.
         let _ = self
@@ -785,6 +798,25 @@ impl Orchestrator {
             let mut table = self.lock_sessions()?;
             if let Some(entry) = table.get_mut(&session_id) {
                 entry.protection = ProtectionStatus::Partial;
+                entry.checklist = Some(ConnectivityChecklist::new(
+                    CheckId::all()
+                        .into_iter()
+                        .map(|id| match id {
+                            CheckId::TunnelReady => CheckReport::pass(
+                                id,
+                                "host proxy endpoint reached; VM tunnel isolation is not available",
+                            ),
+                            CheckId::GatewayReady => CheckReport::skipped(
+                                id,
+                                "host-process mode has no dedicated gateway VM",
+                            ),
+                            _ => CheckReport::skipped(
+                                id,
+                                "not measured by the reduced host-process preflight",
+                            ),
+                        })
+                        .collect(),
+                ));
             }
         }
 
@@ -811,7 +843,6 @@ impl Orchestrator {
 
         // 4. Render the hardened Chromium policy with the host proxy + host dir,
         //    assert it is safe, and launch on the host.
-        self.transition(session_id, SessionState::Browsing)?;
         let launch_req = BrowserLaunchRequest {
             session: session_id,
             profile: profile.id,
@@ -825,7 +856,13 @@ impl Orchestrator {
         let bundle = backend.render_policy(&launch_req)?;
         bundle.assert_safe(launch_req.production)?;
         let handle = backend.launch(&launch_req, &bundle).await?;
-        self.set_browser_handle(session_id, handle)?;
+        self.set_browser_handle(session_id, handle.clone())?;
+        if !backend.is_running(&handle).await? {
+            return Err(Error::System(
+                "host browser launch returned without a live browser process".into(),
+            ));
+        }
+        self.transition(session_id, SessionState::Browsing)?;
 
         // Diagnostics: note the reduced isolation level explicitly (spec §11).
         self.audit(
@@ -1095,5 +1132,46 @@ impl Orchestrator {
         self.lock_sessions()
             .ok()
             .and_then(|t| t.get(&id).map(|e| e.state))
+    }
+
+    /// The exact last preflight checklist for a tracked session.
+    ///
+    /// `None` means no preflight has completed yet. Callers must render that as
+    /// unknown; they must never infer passing checks from the aggregate status.
+    #[must_use]
+    pub fn session_checklist(&self, id: SessionId) -> Option<ConnectivityChecklist> {
+        self.lock_sessions()
+            .ok()
+            .and_then(|t| t.get(&id).and_then(|e| e.checklist.clone()))
+    }
+
+    /// Query the live gateway controller rather than inferring health from a
+    /// previously written policy.
+    pub async fn gateway_health(&self) -> Result<GatewayHealth> {
+        self.caps.gateway.health().await
+    }
+
+    /// Query whether the browser process associated with a session is alive.
+    ///
+    /// Returns `Ok(None)` before a process handle exists or after it has been
+    /// removed. The backend call is made without holding the session-table lock.
+    pub async fn browser_liveness(&self, id: SessionId) -> Result<Option<bool>> {
+        let (handle, backend) = {
+            let table = self.lock_sessions()?;
+            let entry = table
+                .get(&id)
+                .ok_or_else(|| Error::NotFound(format!("session {id}")))?;
+            let Some(handle) = entry.browser_handle.clone() else {
+                return Ok(None);
+            };
+            let backend = match &entry.mode {
+                SessionMode::FullVm => Arc::clone(&self.caps.browser),
+                SessionMode::HostProcess { engine, .. } => {
+                    Arc::clone(self.host_backend_for(*engine)?)
+                }
+            };
+            (handle, backend)
+        };
+        backend.is_running(&handle).await.map(Some)
     }
 }
