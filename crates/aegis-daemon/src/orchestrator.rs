@@ -53,14 +53,22 @@ pub struct Capabilities {
     /// Browser backend for the full-VM path (hardened Chromium via the guest
     /// channel in production).
     pub browser: Arc<dyn BrowserBackend>,
-    /// Browser backend for the reduced host-process path (hardened Chromium via
-    /// [`browser_launcher::HostBrowserRunner`], launched directly on the host).
-    /// Present only when a host browser could be located; `None` disables the
-    /// host-browser mode.
+    /// Browser backend for the reduced host-process path, **Chromium engine**
+    /// (hardened Chromium via [`browser_launcher::HostBrowserRunner`], launched
+    /// directly on the host). Present only when a host Chromium/Edge browser could
+    /// be located; `None` disables the Chromium host-browser mode.
     pub host_browser: Option<Arc<dyn BrowserBackend>>,
-    /// The resolved host-browser executable path, surfaced in the status
-    /// snapshot. `None` when no host browser was located.
+    /// The resolved host Chromium executable path, surfaced in the status
+    /// snapshot. `None` when no host Chromium browser was located.
     pub host_browser_path: Option<String>,
+    /// Browser backend for the reduced host-process path, **Firefox / Tor-Browser
+    /// engine** (hardened Firefox via [`browser_launcher::HostBrowserRunner`],
+    /// launched directly on the host). Present only when a Firefox / Tor Browser
+    /// binary could be located; `None` disables the Firefox host-browser mode.
+    pub host_browser_firefox: Option<Arc<dyn BrowserBackend>>,
+    /// The resolved host Firefox / Tor-Browser executable path. `None` when none
+    /// was located.
+    pub host_browser_firefox_path: Option<String>,
     /// Reduced, fail-closed reachability probe for the host-mode proxy.
     pub host_probe: Arc<dyn HostNetworkProbe>,
     /// Profile storage + single-writer lock.
@@ -134,6 +142,9 @@ enum SessionMode {
         user_data_dir: std::path::PathBuf,
         /// Whether the profile is ephemeral (its user-data dir is disposable).
         ephemeral: bool,
+        /// Which host engine launched the process, so teardown terminates via the
+        /// matching backend (Chromium vs. Firefox).
+        engine: aegis_core::browser::BrowserBackendId,
     },
 }
 
@@ -495,13 +506,10 @@ impl Orchestrator {
                             .into(),
                     ));
                 }
-                if self.caps.host_browser.is_none() {
-                    return Err(Error::Config(
-                        "host-browser mode is enabled but no host browser was located; install \
-                         Chrome/Chromium/Edge or set AEGIS_BROWSER_BIN"
-                            .into(),
-                    ));
-                }
+                // The requested engine's host backend must be wired; if the
+                // matching browser was not found, fail with a clear message naming
+                // the missing browser (before any lock is taken).
+                self.host_backend_for(profile.spec.browser)?;
                 true
             }
         };
@@ -681,6 +689,34 @@ impl Orchestrator {
         Ok(summary)
     }
 
+    /// Select the host-process backend for a browser engine, returning a clear
+    /// [`Error::Config`] naming the missing browser if that engine's binary was
+    /// not located at wiring time.
+    fn host_backend_for(
+        &self,
+        engine: aegis_core::browser::BrowserBackendId,
+    ) -> Result<&Arc<dyn BrowserBackend>> {
+        use aegis_core::browser::BrowserBackendId;
+        match engine {
+            BrowserBackendId::Chromium => self.caps.host_browser.as_ref().ok_or_else(|| {
+                Error::Config(
+                    "this profile requests the Chromium engine in host mode, but no host \
+                     Chromium/Edge browser was located; install Chrome/Chromium/Edge or set \
+                     AEGIS_BROWSER_BIN"
+                        .into(),
+                )
+            }),
+            BrowserBackendId::Firefox => self.caps.host_browser_firefox.as_ref().ok_or_else(|| {
+                Error::Config(
+                    "this profile requests the Firefox engine in host mode, but no host Firefox / \
+                     Tor Browser was located; install Firefox / the Tor Browser bundle or set \
+                     AEGIS_FIREFOX_BIN"
+                        .into(),
+                )
+            }),
+        }
+    }
+
     /// The guarded happy-path body for the reduced **host-process** mode.
     ///
     /// There is NO VM and NO gateway VM. The browser runs directly on the host,
@@ -695,14 +731,11 @@ impl Orchestrator {
         session_id: SessionId,
         profile: &aegis_core::profile::Profile,
     ) -> Result<SessionSummary> {
-        // The host-browser backend must be wired; if not, the mode is unusable.
-        let backend = self.caps.host_browser.as_ref().ok_or_else(|| {
-            Error::Config(
-                "host-browser mode is enabled but no host browser is available; install \
-                 Chrome/Chromium/Edge or set AEGIS_BROWSER_BIN"
-                    .into(),
-            )
-        })?;
+        // Pick the host backend from the PROFILE's requested engine. If that
+        // engine's binary was not found at wiring time, fail with a clear
+        // Error::Config naming the missing browser.
+        let engine = profile.spec.browser;
+        let backend = self.host_backend_for(engine)?;
 
         // 1. Determine the proxy from the profile's network mode (no gateway VM).
         let proxy = self.host_proxy_endpoint(&profile.spec.network.mode)?;
@@ -771,6 +804,7 @@ impl Orchestrator {
                 entry.mode = SessionMode::HostProcess {
                     user_data_dir: user_data_dir.clone(),
                     ephemeral,
+                    engine,
                 };
             }
         }
@@ -932,7 +966,7 @@ impl Orchestrator {
         //    (host process vs. VM guest channel).
         if let Some(handle) = &browser_handle {
             let backend = match &mode {
-                SessionMode::HostProcess { .. } => self.caps.host_browser.as_ref(),
+                SessionMode::HostProcess { engine, .. } => self.host_backend_for(*engine).ok(),
                 SessionMode::FullVm => Some(&self.caps.browser),
             };
             match backend {
@@ -950,6 +984,7 @@ impl Orchestrator {
         if let SessionMode::HostProcess {
             user_data_dir,
             ephemeral: true,
+            ..
         } = &mode
         {
             if let Err(e) = tokio::fs::remove_dir_all(user_data_dir).await {

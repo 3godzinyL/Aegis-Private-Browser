@@ -127,6 +127,13 @@ impl Request {
 ///
 /// Uses the same adjacently-tagged (`"result"` + `"body"`) representation as
 /// [`Request`], so every payload shape serializes uniformly.
+// `Response` is a wire-protocol message enum: some variants (e.g. an update
+// manifest with its artifact list) are inherently larger than others. Boxing
+// individual payloads purely to equalize variant size would complicate the
+// protocol and its construction sites for no runtime benefit — these values are
+// short-lived, one-per-request messages, not stored in bulk. The size disparity
+// is therefore accepted deliberately.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "result", content = "body", rename_all = "kebab-case")]
 pub enum Response {
@@ -291,6 +298,8 @@ mod tests {
             network: Default::default(),
             protection: aegis_core::fingerprint::ProtectionLevel::Strict,
             isolation: aegis_core::config::IsolationLevel::FullVm,
+            browser: aegis_core::browser::BrowserBackendId::Chromium,
+            fingerprint: None,
             permissions: Default::default(),
         };
         let variants = vec![

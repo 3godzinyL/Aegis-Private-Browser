@@ -176,6 +176,54 @@ impl FingerprintPolicy {
         }
     }
 
+    /// Compatibility level: the loosest normalization for maximum site
+    /// compatibility. Still cuts host linkage (device APIs blocked, timezone and
+    /// language pinned) but keeps WebGL and a realistic CPU count so demanding
+    /// sites work. Maps to the `Balanced` protection level.
+    #[must_use]
+    pub fn compatibility() -> Self {
+        Self {
+            level: ProtectionLevel::Balanced,
+            webgl: WebGlMode::VirtualBackend,
+            webgpu_enabled: false,
+            canvas: CanvasMode::Passthrough,
+            letterbox: LetterboxMode::Off,
+            fonts: FontPolicy::StandardSet,
+            timer_coarsening_us: 20,
+            limit_media_device_enumeration: true,
+            hardware_concurrency: Some(8),
+            disable_battery_api: true,
+            disable_sensor_apis: true,
+            block_device_apis: true,
+            timezone: Some("UTC".into()),
+            primary_language: "en-US".into(),
+        }
+    }
+
+    /// Paranoid level: the tightest normalization. Everything the Strict level
+    /// does, plus a fully disabled WebGL, limited Canvas, letterboxing, coarse
+    /// timers and the smallest CPU count — maximum uniformity, most breakage.
+    /// Maps to the `Strict` protection level.
+    #[must_use]
+    pub fn paranoid() -> Self {
+        Self {
+            level: ProtectionLevel::Strict,
+            webgl: WebGlMode::Disabled,
+            webgpu_enabled: false,
+            canvas: CanvasMode::Limited,
+            letterbox: LetterboxMode::On,
+            fonts: FontPolicy::StandardSet,
+            timer_coarsening_us: 100_000,
+            limit_media_device_enumeration: true,
+            hardware_concurrency: Some(2),
+            disable_battery_api: true,
+            disable_sensor_apis: true,
+            block_device_apis: true,
+            timezone: Some("UTC".into()),
+            primary_language: "en-US".into(),
+        }
+    }
+
     /// Invariant checks the auditor relies on. Returns the reason if violated.
     ///
     /// These encode non-negotiable rules from the spec regardless of level:
@@ -201,6 +249,101 @@ impl FingerprintPolicy {
 impl Default for FingerprintPolicy {
     fn default() -> Self {
         Self::balanced()
+    }
+}
+
+/// The four one-click safety presets shown in the UI ("how safe do you want to
+/// be?"). Each maps to a concrete [`FingerprintPolicy`]; the user can then
+/// expand "Advanced" to fine-tune individual switches on top of a preset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum SafetyPreset {
+    /// Loosest — maximum site compatibility.
+    Compatibility,
+    /// Sensible default — most sites work, good unlinkability.
+    #[default]
+    Balanced,
+    /// Stronger — more uniform, some sites break.
+    Strict,
+    /// Tightest — maximum uniformity, expect breakage.
+    Paranoid,
+}
+
+impl SafetyPreset {
+    /// All presets in order (loosest → tightest), for building the UI.
+    #[must_use]
+    pub const fn all() -> [SafetyPreset; 4] {
+        [
+            Self::Compatibility,
+            Self::Balanced,
+            Self::Strict,
+            Self::Paranoid,
+        ]
+    }
+
+    /// The fingerprint policy this preset applies.
+    #[must_use]
+    pub fn policy(self) -> FingerprintPolicy {
+        match self {
+            Self::Compatibility => FingerprintPolicy::compatibility(),
+            Self::Balanced => FingerprintPolicy::balanced(),
+            Self::Strict => FingerprintPolicy::strict(),
+            Self::Paranoid => FingerprintPolicy::paranoid(),
+        }
+    }
+
+    /// The coarse protection level (used for the profile's `protection` field).
+    #[must_use]
+    pub const fn protection_level(self) -> ProtectionLevel {
+        match self {
+            Self::Compatibility | Self::Balanced => ProtectionLevel::Balanced,
+            Self::Strict | Self::Paranoid => ProtectionLevel::Strict,
+        }
+    }
+
+    /// Short UI label.
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Compatibility => "Compatibility",
+            Self::Balanced => "Balanced",
+            Self::Strict => "Strict",
+            Self::Paranoid => "Paranoid",
+        }
+    }
+
+    /// One-line description of the tradeoff.
+    #[must_use]
+    pub const fn description(self) -> &'static str {
+        match self {
+            Self::Compatibility => "Loosest — best site compatibility, still hides your host.",
+            Self::Balanced => "Recommended — most sites work, strong unlinkability.",
+            Self::Strict => "Stronger — more uniform fingerprint, some sites break.",
+            Self::Paranoid => "Tightest — maximum uniformity, expect breakage.",
+        }
+    }
+}
+
+/// A representative User-Agent string for the chosen browser family.
+///
+/// Aegis does **not** spoof the User-Agent — the real engine version is always
+/// preserved at runtime (spec §6, §14). This helper returns a *representative*
+/// value purely so the UI's preview tab can show the shape of the UA a session
+/// will present. The Firefox value matches the uniform Tor-Browser UA (which
+/// keeps every Tor user's UA identical); the Chromium value is a recent stable
+/// desktop UA. Callers should present it as representative, not exact.
+#[must_use]
+pub fn representative_user_agent(browser: crate::browser::BrowserBackendId) -> String {
+    match browser {
+        crate::browser::BrowserBackendId::Chromium => {
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
+             (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+                .to_string()
+        }
+        crate::browser::BrowserBackendId::Firefox => {
+            // The uniform Tor Browser / Firefox ESR UA.
+            "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0".to_string()
+        }
     }
 }
 

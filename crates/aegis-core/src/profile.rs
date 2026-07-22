@@ -58,6 +58,15 @@ pub struct ProfileSpec {
     /// Defaults to full VM isolation.
     #[serde(default)]
     pub isolation: crate::config::IsolationLevel,
+    /// Which browser engine runs the session. Defaults to hardened Chromium;
+    /// `Firefox` targets a Firefox / Tor Browser binary on the host.
+    #[serde(default)]
+    pub browser: crate::browser::BrowserBackendId,
+    /// Optional fine-grained fingerprint override (from the UI's "Advanced"
+    /// panel or a [`crate::fingerprint::SafetyPreset`]). When `None`, the policy
+    /// is derived from `protection`.
+    #[serde(default)]
+    pub fingerprint: Option<crate::fingerprint::FingerprintPolicy>,
     /// Permission policy (defaults to the secure table).
     #[serde(default)]
     pub permissions: PermissionPolicy,
@@ -73,6 +82,8 @@ impl ProfileSpec {
             network: NetworkConfig::default(),
             protection: ProtectionLevel::Balanced,
             isolation: crate::config::IsolationLevel::FullVm,
+            browser: crate::browser::BrowserBackendId::Chromium,
+            fingerprint: None,
             permissions: PermissionPolicy::secure_default(),
         }
     }
@@ -82,6 +93,23 @@ impl ProfileSpec {
     pub fn with_isolation(mut self, isolation: crate::config::IsolationLevel) -> Self {
         self.isolation = isolation;
         self
+    }
+
+    /// The effective fingerprint policy: the explicit override if set, otherwise
+    /// the policy derived from the coarse [`ProtectionLevel`].
+    #[must_use]
+    pub fn resolved_fingerprint(&self) -> crate::fingerprint::FingerprintPolicy {
+        self.fingerprint
+            .clone()
+            .unwrap_or_else(|| self.protection.policy())
+    }
+
+    /// A human-facing preview of exactly what this profile will present to
+    /// websites (User-Agent, timezone, language, WebGL/WebGPU, etc.). Used by the
+    /// UI's "Preview" tab.
+    #[must_use]
+    pub fn preview(&self) -> crate::preview::ProfilePreview {
+        crate::preview::ProfilePreview::from_spec(self)
     }
 
     /// Validate the spec (name non-empty, fingerprint policy sane).

@@ -31,7 +31,7 @@ use aegis_ipc::{Request, RequestHandler, Response};
 use async_trait::async_trait;
 use std::sync::{Arc, Mutex};
 
-use browser_launcher::ChromiumBackend;
+use browser_launcher::{ChromiumBackend, FirefoxBackend};
 use gateway_controller::NftGatewayController;
 use network_audit::{Auditor, MockProbe};
 use profile_store::FileProfileStore;
@@ -134,6 +134,24 @@ fn build_harness_with(probe: MockProbe, host_browser: bool, host_reachable: bool
     } else {
         None
     };
+
+    // Host-mode Firefox backend over a MockRunner. Present whenever the Chromium
+    // host backend is (the two engines are resolved independently in production,
+    // but the host-mode tests want both engines available).
+    let host_browser_firefox: Option<Arc<dyn BrowserBackend>> = if host_browser.is_some() {
+        Some(Arc::new(FirefoxBackend::with_runner(
+            browser_launcher::MockRunner::new(),
+            "firefox",
+            "host",
+        )))
+    } else {
+        None
+    };
+    let host_browser_firefox_path = if host_browser_firefox.is_some() {
+        Some("/mock/firefox".to_string())
+    } else {
+        None
+    };
     let host_probe: Arc<dyn HostNetworkProbe> = Arc::new(MockHostProbe::new(host_reachable));
 
     // Secure storage (OS CSPRNG is fine in tests).
@@ -158,6 +176,8 @@ fn build_harness_with(probe: MockProbe, host_browser: bool, host_reachable: bool
         browser,
         host_browser,
         host_browser_path,
+        host_browser_firefox,
+        host_browser_firefox_path,
         host_probe,
         profiles: profiles.clone(),
         secure,
@@ -197,12 +217,31 @@ async fn make_profile_with(
     kind: ProfileType,
     isolation: IsolationLevel,
 ) -> ProfileId {
+    make_profile_engine(
+        profiles,
+        kind,
+        isolation,
+        aegis_core::browser::BrowserBackendId::Chromium,
+    )
+    .await
+}
+
+/// Create a profile pinned to a specific isolation level AND browser engine, so
+/// the host-mode tests can drive either the Chromium or Firefox host backend.
+async fn make_profile_engine(
+    profiles: &FileProfileStore,
+    kind: ProfileType,
+    isolation: IsolationLevel,
+    browser: aegis_core::browser::BrowserBackendId,
+) -> ProfileId {
     let spec = ProfileSpec {
         name: "integration".into(),
         kind,
         network: NetworkConfig::default(),
         protection: aegis_core::fingerprint::ProtectionLevel::Balanced,
         isolation,
+        browser,
+        fingerprint: None,
         permissions: Default::default(),
     };
     profiles.create(spec).await.unwrap().id
@@ -487,6 +526,120 @@ async fn host_mode_with_reachable_proxy_reaches_browsing() {
         !after.locked,
         "profile lock must be released on host teardown"
     );
+}
+
+/// Host mode with a **Firefox** profile drives the Firefox host backend, reaches
+/// Browsing, and writes a `user.js` into the host user-data dir whose prefs route
+/// through the SOCKS proxy (proving the engine was selected from `spec.browser`).
+#[tokio::test]
+async fn host_mode_firefox_profile_writes_user_js_with_socks_proxy() {
+    let h = build_harness_with(
+        MockProbe::all_pass(),
+        /*host_browser=*/ true,
+        /*reachable=*/ true,
+    );
+    h.orch
+        .set_enforcement(Enforcement::host_browser())
+        .expect("set enforcement");
+
+    // A HostProcess profile that requests the Firefox engine.
+    let profile_id = make_profile_engine(
+        &h.profiles,
+        ProfileType::Ephemeral,
+        IsolationLevel::HostProcess,
+        aegis_core::browser::BrowserBackendId::Firefox,
+    )
+    .await;
+
+    let summary = h
+        .orch
+        .start_session(profile_id)
+        .await
+        .expect("firefox host start ok");
+    assert_eq!(
+        summary.state,
+        SessionState::Browsing,
+        "firefox host mode must reach Browsing"
+    );
+
+    // Before launch the backend wrote user.js into the host user-data dir
+    // (runtime_dir/host-profiles/<profile_id>). Its prefs must contain the SOCKS
+    // proxy routing (port parsed from the Tor host endpoint, 9050) and WebRTC off.
+    let user_js_path = h
+        .orch
+        .config()
+        .paths
+        .runtime_dir
+        .join("host-profiles")
+        .join(profile_id.to_string())
+        .join("user.js");
+    let user_js = std::fs::read_to_string(&user_js_path)
+        .unwrap_or_else(|e| panic!("user.js at {} must exist: {e}", user_js_path.display()));
+    assert!(
+        user_js.contains(r#"user_pref("network.proxy.type", 1);"#),
+        "user.js must enable manual proxy: {user_js}"
+    );
+    assert!(
+        user_js.contains(r#"user_pref("network.proxy.socks_port", 9050);"#),
+        "user.js must route through the SOCKS proxy port: {user_js}"
+    );
+    assert!(
+        user_js.contains(r#"user_pref("media.peerconnection.enabled", false);"#),
+        "user.js must disable WebRTC: {user_js}"
+    );
+    assert!(
+        user_js.contains(r#"user_pref("privacy.resistFingerprinting", true);"#),
+        "user.js must enable resistFingerprinting: {user_js}"
+    );
+
+    // Teardown succeeds via the Firefox backend and removes the ephemeral dir.
+    let final_summary = h
+        .orch
+        .stop_session(summary.id)
+        .await
+        .expect("firefox host stop ok");
+    assert_eq!(final_summary.state, SessionState::Destroyed);
+    let after = h.profiles.get(&profile_id).await.unwrap();
+    assert!(
+        !after.locked,
+        "profile lock must be released on host teardown"
+    );
+}
+
+/// A Firefox host profile is refused with a clear Config error naming the missing
+/// browser when the Firefox engine's binary was not located at wiring time.
+#[tokio::test]
+async fn host_mode_firefox_missing_binary_fails_with_named_config_error() {
+    // Build a harness with NO host browsers wired at all.
+    let h = build_harness_with(
+        MockProbe::all_pass(),
+        /*host_browser=*/ false,
+        /*reachable=*/ true,
+    );
+    h.orch
+        .set_enforcement(Enforcement::host_browser())
+        .expect("set enforcement");
+
+    let profile_id = make_profile_engine(
+        &h.profiles,
+        ProfileType::Ephemeral,
+        IsolationLevel::HostProcess,
+        aegis_core::browser::BrowserBackendId::Firefox,
+    )
+    .await;
+    let err = h
+        .orch
+        .start_session(profile_id)
+        .await
+        .expect_err("missing firefox must be refused");
+    assert_eq!(err.class(), FailureClass::Configuration);
+    assert!(
+        err.to_string().contains("Firefox"),
+        "error must name the missing Firefox browser, got: {err}"
+    );
+    // Refused before any lock was taken.
+    let after = h.profiles.get(&profile_id).await.unwrap();
+    assert!(!after.locked, "a refused start must not hold the lock");
 }
 
 /// Host mode with an UNREACHABLE proxy fails closed: no Browsing, a Critical

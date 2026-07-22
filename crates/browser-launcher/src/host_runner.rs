@@ -46,6 +46,9 @@ use tokio::process::{Child, Command};
 /// Environment variable that overrides browser-binary resolution.
 pub const BROWSER_BIN_ENV: &str = "AEGIS_BROWSER_BIN";
 
+/// Environment variable that overrides Firefox / Tor-Browser binary resolution.
+pub const FIREFOX_BIN_ENV: &str = "AEGIS_FIREFOX_BIN";
+
 /// Abstracts the environment/filesystem lookups that binary resolution needs, so
 /// [`resolve_browser_binary`] can stay pure and be exercised deterministically in
 /// tests (no real Chrome, no dependence on the host's installed browsers).
@@ -205,6 +208,150 @@ pub fn resolve_browser_binary<E: ResolverEnv>(
         Error::NotFound(
             "no Chromium-family browser found on this host; set AEGIS_BROWSER_BIN or install \
              Chrome/Chromium/Edge"
+                .to_string(),
+        )
+    })
+}
+
+/// The Firefox-family binaries searched on `PATH` on Linux (in priority order):
+/// Tor Browser's wrapper first, then a plain Firefox.
+#[cfg(not(windows))]
+const LINUX_FIREFOX_PATH_CANDIDATES: &[&str] =
+    &["tor-browser", "firefox", "firefox-esr", "firefox-bin"];
+
+/// Relative `…/Tor Browser/Browser/firefox.exe` layout under a root dir.
+#[cfg(windows)]
+const TOR_BROWSER_REL: &str = r"Tor Browser\Browser\firefox.exe";
+
+/// Search the host for a Firefox / Tor-Browser binary. Pure w.r.t. the injected
+/// [`ResolverEnv`].
+///
+/// Tor Browser is preferred over a standalone Firefox (it ships the strongest
+/// uplifted anti-fingerprinting defaults and a matching UA). Returns `None` when
+/// nothing suitable is found; callers turn that into a clear [`Error`].
+#[must_use]
+pub fn search_default_firefox<E: ResolverEnv>(env: &E) -> Option<PathBuf> {
+    #[cfg(windows)]
+    {
+        search_firefox_windows(env)
+    }
+    #[cfg(not(windows))]
+    {
+        search_firefox_unix(env)
+    }
+}
+
+/// Windows Firefox / Tor-Browser search: Tor Browser locations first (Desktop,
+/// Program Files, common user dirs), then standard Firefox install paths, then
+/// `PATH`.
+#[cfg(windows)]
+fn search_firefox_windows<E: ResolverEnv>(env: &E) -> Option<PathBuf> {
+    // 1. Tor Browser under likely roots. `…/Desktop/Tor Browser/…` is the default
+    //    "extract-and-run" location; also probe user home, Program Files and
+    //    LOCALAPPDATA.
+    let tor_roots: Vec<PathBuf> = [
+        env.var("USERPROFILE")
+            .map(|u| PathBuf::from(u).join("Desktop")),
+        env.var("USERPROFILE").map(PathBuf::from),
+        env.var("USERPROFILE")
+            .map(|u| PathBuf::from(u).join("Downloads")),
+        env.var("ProgramFiles").map(PathBuf::from),
+        env.var("ProgramFiles(x86)").map(PathBuf::from),
+        env.var("LOCALAPPDATA").map(PathBuf::from),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+
+    for root in &tor_roots {
+        let candidate = root.join(TOR_BROWSER_REL);
+        if env.is_file(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    // 2. Standard Mozilla Firefox install locations.
+    let ff_roots: Vec<PathBuf> = [
+        env.var("ProgramFiles"),
+        env.var("ProgramFiles(x86)"),
+        env.var("LOCALAPPDATA"),
+    ]
+    .into_iter()
+    .flatten()
+    .map(PathBuf::from)
+    .collect();
+
+    for root in &ff_roots {
+        let candidate = root.join(r"Mozilla Firefox").join("firefox.exe");
+        if env.is_file(&candidate) {
+            return Some(candidate);
+        }
+    }
+
+    // 3. Last resort: PATH.
+    env.which("firefox.exe")
+}
+
+/// Unix Firefox / Tor-Browser search: Tor Browser under common user dirs first,
+/// then `PATH` (`tor-browser`, `firefox`, `firefox-esr`).
+#[cfg(not(windows))]
+fn search_firefox_unix<E: ResolverEnv>(env: &E) -> Option<PathBuf> {
+    // Tor Browser's Linux launcher lives at
+    // `<extract>/tor-browser/Browser/start-tor-browser` or ships a
+    // `firefox.real`; probe the common extract roots for the launcher.
+    if let Some(home) = env.var("HOME") {
+        let home = PathBuf::from(home);
+        const TOR_REL: &[&str] = &[
+            "tor-browser/Browser/start-tor-browser",
+            "Desktop/tor-browser/Browser/start-tor-browser",
+            "Downloads/tor-browser/Browser/start-tor-browser",
+            ".local/share/torbrowser/tbb/x86_64/tor-browser/Browser/start-tor-browser",
+        ];
+        for rel in TOR_REL {
+            let candidate = home.join(rel);
+            if env.is_file(&candidate) {
+                return Some(candidate);
+            }
+        }
+    }
+    for name in LINUX_FIREFOX_PATH_CANDIDATES {
+        if let Some(p) = env.which(name) {
+            return Some(p);
+        }
+    }
+    None
+}
+
+/// Resolve the Firefox / Tor-Browser binary to launch. **Pure** w.r.t. the
+/// injected [`ResolverEnv`].
+///
+/// Precedence:
+/// 1. `override_bin` (constructor argument), if `Some`;
+/// 2. the `AEGIS_FIREFOX_BIN` environment variable, if set;
+/// 3. the platform search ([`search_default_firefox`]): Tor Browser locations
+///    first, then standard Firefox install paths.
+///
+/// The explicit override (1 and 2) is taken *verbatim and is not required to
+/// exist yet* — a launch of a missing path fails later with a clear
+/// [`Error::System`]. The platform search (3) only returns paths that exist.
+///
+/// # Errors
+/// Returns [`Error::NotFound`] when no override is given and the platform search
+/// finds no Firefox / Tor Browser installed.
+pub fn resolve_firefox_binary<E: ResolverEnv>(
+    override_bin: Option<&str>,
+    env: &E,
+) -> Result<PathBuf> {
+    if let Some(explicit) = override_bin.map(str::trim).filter(|s| !s.is_empty()) {
+        return Ok(PathBuf::from(explicit));
+    }
+    if let Some(from_env) = env.var(FIREFOX_BIN_ENV) {
+        return Ok(PathBuf::from(from_env));
+    }
+    search_default_firefox(env).ok_or_else(|| {
+        Error::NotFound(
+            "no Firefox or Tor Browser found on this host; set AEGIS_FIREFOX_BIN or install \
+             Firefox / the Tor Browser bundle"
                 .to_string(),
         )
     })
@@ -438,6 +585,98 @@ mod tests {
         let err = resolve_browser_binary(None, &env).unwrap_err();
         assert!(matches!(err, Error::NotFound(_)));
         assert!(err.to_string().contains("AEGIS_BROWSER_BIN"));
+    }
+
+    // --- Firefox / Tor-Browser resolution ---------------------------------
+
+    #[test]
+    fn firefox_override_argument_wins_over_everything() {
+        let env = FakeEnv::default()
+            .with_var(FIREFOX_BIN_ENV, "/env/firefox")
+            .with_on_path("firefox", "/usr/bin/firefox");
+        let got = resolve_firefox_binary(Some("/explicit/firefox"), &env).unwrap();
+        assert_eq!(got, PathBuf::from("/explicit/firefox"));
+    }
+
+    #[test]
+    fn firefox_env_var_is_honored() {
+        // AEGIS_FIREFOX_BIN wins over the platform search (verbatim, not checked).
+        let env = FakeEnv::default().with_var(FIREFOX_BIN_ENV, "/opt/tor-browser/firefox");
+        let got = resolve_firefox_binary(None, &env).unwrap();
+        assert_eq!(got, PathBuf::from("/opt/tor-browser/firefox"));
+    }
+
+    #[test]
+    fn firefox_missing_is_a_clear_not_found_error() {
+        let env = FakeEnv::default();
+        let err = resolve_firefox_binary(None, &env).unwrap_err();
+        assert!(matches!(err, Error::NotFound(_)));
+        assert!(err.to_string().contains("AEGIS_FIREFOX_BIN"));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn firefox_finds_tor_browser_on_desktop_before_plain_firefox() {
+        let profile = r"C:\Users\tester";
+        let desktop_tor = format!(r"{profile}\Desktop\Tor Browser\Browser\firefox.exe");
+        let pf_firefox = r"C:\Program Files\Mozilla Firefox\firefox.exe";
+
+        // Both a Desktop Tor Browser and a plain Firefox exist: Tor Browser wins.
+        let env = FakeEnv::default()
+            .with_var("USERPROFILE", profile)
+            .with_var("ProgramFiles", r"C:\Program Files")
+            .with_file(&desktop_tor)
+            .with_file(pf_firefox);
+        assert_eq!(
+            search_default_firefox(&env).unwrap(),
+            PathBuf::from(&desktop_tor)
+        );
+        // resolve_firefox_binary (no override/env) uses the same search.
+        assert_eq!(
+            resolve_firefox_binary(None, &env).unwrap(),
+            PathBuf::from(&desktop_tor)
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn firefox_falls_back_to_standard_install_then_path() {
+        // No Tor Browser => standard Firefox under Program Files.
+        let pf_firefox = r"C:\Program Files\Mozilla Firefox\firefox.exe";
+        let env = FakeEnv::default()
+            .with_var("ProgramFiles", r"C:\Program Files")
+            .with_file(pf_firefox);
+        assert_eq!(
+            search_default_firefox(&env).unwrap(),
+            PathBuf::from(pf_firefox)
+        );
+
+        // Nothing installed => PATH fallback.
+        let env2 = FakeEnv::default().with_on_path("firefox.exe", r"C:\tools\firefox.exe");
+        assert_eq!(
+            search_default_firefox(&env2).unwrap(),
+            PathBuf::from(r"C:\tools\firefox.exe")
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn firefox_finds_tor_browser_under_home_then_path() {
+        let home = "/home/tester";
+        let tor = format!("{home}/tor-browser/Browser/start-tor-browser");
+        // Tor Browser under HOME is preferred over a PATH firefox.
+        let env = FakeEnv::default()
+            .with_var("HOME", home)
+            .with_file(&tor)
+            .with_on_path("firefox", "/usr/bin/firefox");
+        assert_eq!(search_default_firefox(&env).unwrap(), PathBuf::from(&tor));
+
+        // No Tor Browser => PATH firefox.
+        let env2 = FakeEnv::default().with_on_path("firefox", "/usr/bin/firefox");
+        assert_eq!(
+            search_default_firefox(&env2).unwrap(),
+            PathBuf::from("/usr/bin/firefox")
+        );
     }
 
     #[cfg(not(windows))]

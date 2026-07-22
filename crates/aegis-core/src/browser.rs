@@ -14,12 +14,13 @@ use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 /// Identifies a concrete browser backend implementation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "kebab-case")]
 pub enum BrowserBackendId {
     /// Hardened Chromium (MVP, spec §6 decision).
+    #[default]
     Chromium,
-    /// Firefox/Mullvad-based backend (planned, spec §6 Variant A).
+    /// Firefox / Tor Browser-based backend (spec §6 Variant A).
     Firefox,
 }
 

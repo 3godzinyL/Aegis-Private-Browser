@@ -121,9 +121,10 @@ fn build_capabilities(config: &aegis_core::config::AppConfig) -> Capabilities {
             "vm-browser",
         ));
 
-    // Host-browser backend (reduced HostProcess mode): hardened Chromium launched
-    // directly on the host via HostBrowserRunner. Resolved once at wiring time;
-    // when no Chromium-family browser is found the host mode stays disabled.
+    // Host-browser backend, CHROMIUM engine (reduced HostProcess mode): hardened
+    // Chromium launched directly on the host via HostBrowserRunner. Resolved once
+    // at wiring time; when no Chromium-family browser is found this engine stays
+    // unavailable (a profile requesting it fails closed with a clear message).
     let (host_browser, host_browser_path): (Option<Arc<dyn BrowserBackend>>, Option<String>) =
         match browser_launcher::resolve_browser_binary(None, &browser_launcher::SystemEnv) {
             Ok(path) => {
@@ -135,10 +136,32 @@ fn build_capabilities(config: &aegis_core::config::AppConfig) -> Capabilities {
                 (Some(backend), Some(path_str))
             }
             Err(e) => {
-                tracing::info!(error = %e, "no host browser found; host-process mode unavailable");
+                tracing::info!(error = %e, "no host Chromium browser found; Chromium host-process mode unavailable");
                 (None, None)
             }
         };
+
+    // Host-browser backend, FIREFOX / Tor-Browser engine (reduced HostProcess
+    // mode): hardened Firefox launched directly on the host via HostBrowserRunner.
+    // Resolved independently; when no Firefox / Tor Browser is found this engine
+    // stays unavailable.
+    let (host_browser_firefox, host_browser_firefox_path): (
+        Option<Arc<dyn BrowserBackend>>,
+        Option<String>,
+    ) = match browser_launcher::resolve_firefox_binary(None, &browser_launcher::SystemEnv) {
+        Ok(path) => {
+            let path_str = path.to_string_lossy().into_owned();
+            let runner = browser_launcher::HostBrowserRunner::with_binary(path.clone());
+            let backend: Arc<dyn BrowserBackend> = Arc::new(
+                browser_launcher::FirefoxBackend::with_runner(runner, "firefox", "host"),
+            );
+            (Some(backend), Some(path_str))
+        }
+        Err(e) => {
+            tracing::info!(error = %e, "no host Firefox/Tor Browser found; Firefox host-process mode unavailable");
+            (None, None)
+        }
+    };
 
     // Reduced, fail-closed proxy reachability probe for the host mode.
     let host_probe: Arc<dyn aegis_daemon::HostNetworkProbe> = Arc::new(TcpHostProbe::default());
@@ -180,6 +203,8 @@ fn build_capabilities(config: &aegis_core::config::AppConfig) -> Capabilities {
         browser,
         host_browser,
         host_browser_path,
+        host_browser_firefox,
+        host_browser_firefox_path,
         host_probe,
         profiles,
         secure,
