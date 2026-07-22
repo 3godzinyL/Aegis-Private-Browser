@@ -23,7 +23,7 @@ render a direct image URL in README. Keep the descriptive alt text.
   <tr>
     <td width="50%" align="center">
       <strong>Screenshot 1 — main dashboard</strong><br/>
-      <sub>Paste the direct Discord image URL here.</sub>
+      <sub>https://cdn.discordapp.com/attachments/1307535965123903489/1529486309083840552/image.png?ex=6a621ca0&is=6a60cb20&hm=62fbf68d6b8896edabc1bf1496c03f34e4a40cab8f8857596e8ae7df6e04e395&</sub>
       <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_1" alt="Aegis main dashboard" width="100%"/> -->
     </td>
     <td width="50%" align="center">
