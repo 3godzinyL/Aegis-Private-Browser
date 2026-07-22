@@ -7,9 +7,15 @@
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Rust 1.82+](https://img.shields.io/badge/Rust-1.82%2B-orange.svg?logo=rust)](rust-toolchain.toml)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20(dev)-6E56CF.svg?logo=linux&logoColor=white)](docs/architecture.md)
-[![Tests](https://img.shields.io/badge/tests-367%20passing-brightgreen.svg)](docs/threat-model.md)
+[![Tests](https://img.shields.io/badge/tests-398%20passing-brightgreen.svg)](docs/threat-model.md)
 [![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-000000.svg?logo=rust)](Cargo.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](#-contributing)
+
+<br/>
+
+<img src="docs/images/new-session.png" alt="Aegis — New Private Session: platform selector, four safety tiers, advanced tuning, live preview" width="820"/>
+
+<sub>The redesigned **New Private Session** dialog — pick a platform (Linux full-VM / Windows host), one of four safety tiers, then optionally fine-tune everything under **Advanced**. A **Preview** tab shows exactly what a site will see. Built-in **EN / PL** UI.</sub>
 
 </div>
 

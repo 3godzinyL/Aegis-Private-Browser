@@ -1,0 +1,32 @@
+[Unit]
+Description=Aegis Gateway health probe (writes tunnel/kill-switch state for the manager)
+Documentation=file:///usr/local/sbin/aegis-healthcheck
+After=aegis-tor.service aegis-gateway-firewall.service
+Wants=aegis-tor.service
+
+[Service]
+Type=simple
+# Continuously probes Tor bootstrap + firewall state and (re)writes a JSON health
+# document the manager reads over the management channel. The JSON shape mirrors
+# aegis_core::gateway::GatewayHealth so gateway-controller can deserialize it
+# directly. On loss of tunnel it engages the kill-switch ruleset itself, so
+# containment does not depend on the manager being reachable (spec §16).
+ExecStart=/usr/local/sbin/aegis-healthcheck --loop --interval 5 --out /run/aegis/health.json
+Restart=always
+RestartSec=2
+RuntimeDirectory=aegis
+RuntimeDirectoryMode=0755
+# Needs CAP_NET_ADMIN to swap in the kill-switch ruleset on tunnel failure.
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=CAP_NET_ADMIN
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run/aegis
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

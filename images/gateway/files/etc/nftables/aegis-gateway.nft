@@ -1,0 +1,108 @@
+#!/usr/sbin/nft -f
+#
+# Aegis Gateway VM — complete default-deny ruleset (single-file loader).
+#
+# This is the in-image, self-contained ruleset loaded by
+# aegis-gateway-firewall.service BEFORE any network interface is configured. It
+# is the concatenation of the canonical, individually-tested rule fragments in
+# firewall/nftables/ (ipv6 block + nat-tor + inet filter). At runtime,
+# gateway-controller may re-render it from GatewayConfig (interface names,
+# downstream_cidr, gateway_address, tunnel mode); the values below are the
+# documented defaults that the aegis-core tests assert.
+#
+# Spec: §5 (fail-closed, DNS capture, IPv6 block, no direct UDP), §14, §16.
+# Keep in sync with:
+#   firewall/nftables/gateway.nft, nat-tor.nft, killswitch.nft
+#
+# Fail-closed guarantee: every base chain is `policy drop`. If Tor is down the
+# redirect points at a dead port and the packet is dropped — there is no accept
+# rule that can fall back to a direct connection (§16).
+
+# ---------------------------------------------------------------------------
+# Definitions (substituted by gateway-controller from GatewayConfig at runtime).
+# ---------------------------------------------------------------------------
+define down_if       = "eth1"                 # downstream NIC → Browser VM
+define up_if         = "eth0"                 # upstream NIC → host NAT / WAN
+define lan_net       = 10.152.152.0/24        # downstream browser subnet
+define gw_addr       = 10.152.152.1           # gateway downstream address
+define tor_dnsport   = 5353                   # Tor DNSPort   (FirewallPolicy.redirect_dns_to)
+define tor_transport = 9040                   # Tor TransPort (FirewallPolicy.redirect_tcp_to)
+define tor_virtual   = 10.192.0.0/10          # VirtualAddrNetworkIPv4 (matches torrc)
+
+# ===========================================================================
+# IPv6 default-block (spec §5: "blokada IPv6 poza tunelem"; §14 "brak wycieku
+# IPv6"). Ipv6Policy::Block is the default. When Ipv6Policy::RouteThroughTunnel
+# is selected, gateway-controller replaces this table with a tunnel-scoped one.
+# ===========================================================================
+table ip6 filter
+delete table ip6 filter
+table ip6 filter {
+    chain input   { type filter hook input   priority filter; policy drop; iif "lo" accept; }
+    chain forward { type filter hook forward priority filter; policy drop; }
+    chain output  { type filter hook output  priority filter; policy drop; oif "lo" accept; }
+}
+
+# ===========================================================================
+# Transparent-proxy NAT (Tor mode): redirect browser DNS→DNSPort, TCP→TransPort.
+# ===========================================================================
+table ip nat
+delete table ip nat
+table ip nat {
+    chain prerouting {
+        type nat hook prerouting priority dstnat; policy accept;
+        iif != $down_if return
+        ip saddr != $lan_net return
+        # DNS capture — nothing on :53 escapes the gateway.
+        meta l4proto udp udp dport 53 redirect to :$tor_dnsport
+        meta l4proto tcp tcp dport 53 redirect to :$tor_transport
+        # Transparent TCP (incl. Tor virtual range) → TransPort.
+        ip daddr $tor_virtual meta l4proto tcp redirect to :$tor_transport
+        meta l4proto tcp redirect to :$tor_transport
+        # Non-DNS UDP intentionally NOT redirected → dropped by filter forward.
+    }
+    chain postrouting {
+        type nat hook postrouting priority srcnat; policy accept;
+        oif $up_if masquerade
+    }
+}
+
+# ===========================================================================
+# inet filter — default-deny stateful firewall.
+# ===========================================================================
+table inet filter
+delete table inet filter
+table inet filter {
+
+    chain input {
+        type filter hook input priority filter; policy drop;
+        iif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+        # Browser subnet may reach the transparently-redirected Tor ports.
+        iif $down_if ip saddr $lan_net ip daddr $gw_addr tcp dport $tor_transport accept
+        iif $down_if ip saddr $lan_net ip daddr $gw_addr udp dport $tor_dnsport   accept
+        iif $down_if ip saddr $lan_net ip daddr $gw_addr tcp dport $tor_dnsport   accept
+        iif $down_if ip saddr $lan_net icmp type { echo-request, destination-unreachable } accept
+        # Everything else (incl. host-initiated on upstream) → policy drop.
+    }
+
+    chain forward {
+        type filter hook forward priority filter; policy drop;
+        ct state established,related accept
+        ct state invalid drop
+        # HARD BLOCK direct UDP (block_direct_udp): DNS is redirected in nat; a
+        # UDP/53 arriving here means the redirect failed → drop, never leak.
+        ip saddr $lan_net udp dport 53 drop
+        ip saddr $lan_net meta l4proto udp drop
+        # No other browser→WAN forwarding; TCP is terminated locally by Tor.
+    }
+
+    chain output {
+        type filter hook output priority filter; policy drop;
+        oif "lo" accept
+        ct state established,related accept
+        ct state invalid drop
+        # Gateway-originated (Tor) traffic egresses via the single upstream path.
+        oif $up_if accept
+    }
+}

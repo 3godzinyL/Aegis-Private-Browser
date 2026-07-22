@@ -1,0 +1,59 @@
+#!/bin/sh
+# Aegis Chromium launcher (spec §5, §6, §10, §16; Etap 2/4).
+#
+# Launched inside the cage kiosk. Enforces the non-negotiable rules from §16:
+#   * NEVER --no-sandbox            (Chromium sandbox stays on)
+#   * NEVER --disable-web-security  (same-origin policy stays on)
+#   * NO remote debugging port      (no DevTools Protocol on any interface)
+#   * Site Isolation stays ON       (do not pass --disable-site-isolation-*)
+#   * WebRTC restricted to proxied UDP so no host/local IP leaks (spec §5)
+#
+# The managed enterprise policy (installed by firstboot) governs
+# account/telemetry/permission/network surface; this script only sets launch
+# flags that cannot be expressed as policy. Fingerprint normalization proper
+# lives in the Chromium patch set (browser/chromium-patches), not here.
+set -eu
+
+# Per-session values from firstboot.
+USER_DATA_DIR="/home/aegis/.config/aegis-session"
+LEVEL="strict"
+if [ -r /run/aegis/browser.env ]; then
+  . /run/aegis/browser.env
+  USER_DATA_DIR="${AEGIS_USER_DATA_DIR:-$USER_DATA_DIR}"
+  LEVEL="${AEGIS_PROTECTION_LEVEL:-$LEVEL}"
+fi
+
+# GPU backend: virtio-gpu normally, software fallback. We never expose a physical
+# GPU (spec §4). Chromium auto-detects the virtio-gpu DRI device; in Strict we
+# force the software path (matches HardwareAccelerationModeEnabled=false in the
+# strict managed policy) to avoid any host-GPU-derived WebGL surface.
+GPU_FLAGS="--use-gl=angle --use-angle=gl"
+if [ "$LEVEL" = "strict" ]; then
+  GPU_FLAGS="--disable-gpu --disable-gpu-compositing"
+fi
+
+# WebRTC: block all non-proxied UDP so no local/host IP can leak (spec §5). This
+# is also set via the WebRtc* enterprise policies; the flag is belt-and-suspenders.
+WEBRTC_FLAGS="--force-webrtc-ip-handling-policy=disable_non_proxied_udp"
+
+exec /usr/bin/chromium \
+  --user-data-dir="${USER_DATA_DIR}" \
+  --class=aegis-browser \
+  --start-fullscreen \
+  --no-first-run \
+  --no-default-browser-check \
+  --disable-sync \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-breakpad \
+  --disable-crash-reporter \
+  --no-pings \
+  ${WEBRTC_FLAGS} \
+  ${GPU_FLAGS} \
+  "about:blank"
+
+# NOTE: intentionally ABSENT — do not add any of these in production:
+#   --no-sandbox                 (would disable the Chromium sandbox)
+#   --disable-web-security       (would break same-origin policy)
+#   --remote-debugging-port=...  (would expose the DevTools Protocol)
+#   --disable-site-isolation-*   (would weaken Site Isolation)

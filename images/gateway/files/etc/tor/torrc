@@ -1,0 +1,57 @@
+# Aegis Gateway — Tor transparent-proxy configuration (spec §5; Etap 1).
+#
+# The gateway captures ALL DNS and TCP from the isolated Browser network and
+# routes it through Tor. There is no SOCKS listener exposed to the browser: the
+# browser sees a plain router, and the firewall transparently redirects its
+# traffic to the ports below. UDP other than DNS is dropped by nftables (Tor
+# cannot carry arbitrary UDP), which enforces the "no direct UDP" rule (spec §5).
+#
+# Port choices MUST match aegis_core::gateway::FirewallPolicy::fail_closed and the
+# nftables ruleset:
+#   DNSPort   = 5353   (firewall redirects downstream :53 udp/tcp here)
+#   TransPort = 9040   (firewall redirects downstream tcp here)
+#   ControlPort = 9051 (loopback only; used by aegis-healthcheck for bootstrap %)
+
+DataDirectory /var/lib/tor
+User debian-tor
+
+# --- Transparent proxy listeners (bound to the downstream gateway address) ----
+# 10.152.152.1 is the gateway's downstream address (matches GatewayConfig
+# downstream_cidr 10.152.152.0/24). Binding here, never to the upstream NIC,
+# means these listeners are only reachable from the isolated Browser network.
+TransPort 10.152.152.1:9040
+DNSPort   10.152.152.1:5353
+
+# --- DNS automapping for .onion and general name resolution -------------------
+# Give resolved names virtual IPs inside a private range the firewall pins to
+# Tor, so the browser's connections to those IPs are transparently torified.
+AutomapHostsOnResolve 1
+AutomapHostsSuffixes .onion,.exit
+VirtualAddrNetworkIPv4 10.192.0.0/10
+
+# --- Control port for health probing (loopback only, cookie auth) -------------
+ControlPort 127.0.0.1:9051
+CookieAuthentication 1
+CookieAuthFile /run/tor/control.authcookie
+CookieAuthFileGroupReadable 1
+
+# --- Hardening / no exit relaying; client only --------------------------------
+SocksPort 0
+ClientOnly 1
+ExitRelay 0
+AvoidDiskWrites 1
+# Do not resolve or accept IPv6 upstream unless explicitly enabled; the firewall
+# blocks IPv6 downstream regardless (spec §5 IPv6 leak prevention).
+ClientUseIPv6 0
+ClientPreferIPv6ORPort 0
+
+# --- Bridges / pluggable transports (populated by the manager when configured)-
+# The manager rewrites the block below via gateway-controller when TorConfig
+# requests bridges. Left empty by default (direct Tor).
+# UseBridges 1
+# ClientTransportPlugin obfs4 exec /usr/bin/obfs4proxy
+# Bridge obfs4 <ip:port> <fingerprint> cert=<...> iat-mode=0
+
+# --- Logging: no client traffic logged; notices only, to the journal ----------
+Log notice syslog
+SafeLogging 1

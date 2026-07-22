@@ -1,0 +1,29 @@
+# Aegis Gateway — DOWNSTREAM NIC (eth1 → isolated Browser network).
+#
+# Static gateway address on the isolated subnet. The Browser VM's single NIC
+# attaches here and routes ALL traffic through this address (10.152.152.1). This
+# interface faces the isolated libvirt network only; it never reaches the host
+# NAT. The gateway serves DHCP to the browser via a minimal built-in pool so the
+# Browser VM needs no host-derived configuration.
+#
+# Must match aegis_core::gateway::GatewayConfig defaults:
+#   downstream_cidr = 10.152.152.0/24, gateway_address = 10.152.152.1
+[Match]
+Name=eth1
+
+[Network]
+Address=10.152.152.1/24
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+# Serve addresses to the Browser VM on the isolated net (single client).
+DHCPServer=yes
+IPMasquerade=no
+
+[DHCPServer]
+PoolOffset=100
+PoolSize=8
+EmitDNS=yes
+# Point the browser's resolver at the gateway; the firewall redirects :53 to Tor.
+DNS=10.152.152.1
+EmitRouter=yes
+DefaultLeaseTimeSec=3600

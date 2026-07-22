@@ -1,0 +1,16 @@
+# Aegis Gateway — read-only root with tmpfs writable scratch (spec §10).
+#
+# vm-controller mounts the signed base image read-only and adds a disposable
+# qcow2 overlay per instance; inside the guest, / is mounted read-only and the
+# few paths that must be writable at runtime are tmpfs (RAM-only, wiped on reboot,
+# never persisted to the overlay). No host shared folders are ever listed here
+# (spec §4: brak współdzielonych katalogów / brak montowania dysków hosta).
+#
+# <file system>   <mount point>   <type>    <options>                         <dump> <pass>
+/dev/vda          /               ext4      ro,noatime,nodev                  0      1
+
+tmpfs             /run            tmpfs     rw,nosuid,nodev,noexec,size=32m    0      0
+tmpfs             /tmp            tmpfs     rw,nosuid,nodev,noexec,size=32m    0      0
+tmpfs             /var/log        tmpfs     rw,nosuid,nodev,noexec,size=16m    0      0
+tmpfs             /var/lib/tor    tmpfs     rw,nosuid,nodev,noexec,mode=0700,size=32m 0 0
+tmpfs             /var/tmp        tmpfs     rw,nosuid,nodev,noexec,size=8m     0      0

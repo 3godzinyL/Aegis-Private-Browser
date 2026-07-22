@@ -1,0 +1,54 @@
+[Unit]
+Description=Aegis Chromium kiosk (single-app Wayland session, sandboxed)
+Documentation=file:///usr/local/sbin/aegis-launch-chromium
+# Chromium only launches after firstboot has applied the managed policy and the
+# per-session user-data-dir, and after the single NIC to the gateway is up.
+After=aegis-browser-firstboot.service systemd-networkd.service seatd.service
+Requires=aegis-browser-firstboot.service seatd.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=aegis
+Group=aegis
+PAMName=login
+# cage is a single-application Wayland compositor: it starts ONE program
+# fullscreen with no desktop, launcher, or window management around it.
+ExecStart=/usr/bin/cage -- /usr/local/sbin/aegis-launch-chromium
+Restart=on-failure
+RestartSec=2
+TTYPath=/dev/tty7
+StandardInput=tty
+StandardOutput=journal
+
+# --- systemd sandbox hardening (spec §10: filtrowanie wywołań systemowych) ----
+# Chromium runs its own multi-layer sandbox (setuid + user namespaces + seccomp-
+# bpf); these systemd confinements harden the *launcher/service* boundary WITHOUT
+# breaking Chromium's own sandbox. We deliberately do NOT set restrictive
+# SystemCallFilter here that would block Chromium's seccomp bootstrap; instead we
+# constrain the filesystem, capabilities, and namespaces.
+NoNewPrivileges=no        # chrome-sandbox is setuid-root; NNP would break it.
+ProtectSystem=strict
+ProtectHome=no            # /home/aegis (tmpfs) is the user-data-dir.
+ReadWritePaths=/home/aegis /tmp /var/downloads /run/aegis /run/user
+PrivateTmp=no             # Chromium needs a shared /tmp for its shm; still tmpfs.
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=no       # chrome-sandbox requires setuid.
+LockPersonality=yes
+MemoryDenyWriteExecute=no  # V8 JIT needs W^X transitions.
+# Devices: GPU (virtio-gpu / software), input, dri, tty; NOTHING host-specific.
+DevicePolicy=closed
+DeviceAllow=/dev/dri rw
+DeviceAllow=/dev/tty7 rw
+DeviceAllow=/dev/null rw
+DeviceAllow=/dev/zero rw
+DeviceAllow=/dev/urandom r
+DeviceAllow=char-input rw
+# No USB, no host char devices, no camera/mic nodes exposed.
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,49 @@
+# Aegis red-team + acceptance integration test crate (task #15).
+#
+# This crate is NOT published. It exercises the spec §15 red-team scenarios and
+# the §14 acceptance criteria as runnable integration tests, driving the real
+# MOCK controllers so the whole suite runs cross-platform (including this Windows
+# machine) with no VMs, no root, and no network.
+[package]
+name = "aegis-redteam-tests"
+description = "Aegis red-team scenario + acceptance-criteria integration tests (spec §14, §15)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+publish = false
+
+[lints]
+workspace = true
+
+[lib]
+name = "aegis_redteam_tests"
+path = "src/lib.rs"
+
+# Everything is a dev-dependency: the crate ships no runtime code, only a shared
+# test-harness library (src/lib.rs) plus the integration tests under tests/.
+[dev-dependencies]
+aegis-core.workspace = true
+# aegis-daemon is a workspace member but not declared in the root
+# [workspace.dependencies] (nothing depended on it as a library before), so it is
+# referenced here by path rather than `.workspace = true`.
+aegis-daemon = { path = "../../crates/aegis-daemon" }
+aegis-ipc.workspace = true
+vm-controller.workspace = true
+gateway-controller.workspace = true
+network-audit.workspace = true
+profile-store.workspace = true
+secure-storage.workspace = true
+browser-launcher.workspace = true
+update-client.workspace = true
+tokio.workspace = true
+tempfile.workspace = true
+chrono.workspace = true
+# Needed to serialize an UpdateManifest into the bytes a MockTransport serves;
+# already declared in the root [workspace.dependencies].
+serde_json.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+hex.workspace = true

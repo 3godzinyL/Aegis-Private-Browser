@@ -264,6 +264,7 @@ dependencies = [
  "aegis-core",
  "async-trait",
  "serde_json",
+ "tempfile",
  "tokio",
 ]
 

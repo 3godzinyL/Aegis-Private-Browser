@@ -1,0 +1,38 @@
+[Unit]
+Description=Aegis Gateway default-deny nftables firewall (fail-closed)
+Documentation=file:///etc/nftables/aegis-gateway.nft
+# CRITICAL ordering: the ruleset MUST be in place before ANY network interface is
+# configured, so there is never a window where packets could route around the
+# firewall (spec §5, §16 "awaria ma zawsze kończyć się blokadą"). We therefore
+# order this before networkd AND before the network target.
+DefaultDependencies=no
+Wants=network-pre.target
+Before=network-pre.target network.target systemd-networkd.service
+After=systemd-sysctl.service
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Load the vetted ruleset. If loading fails, the unit fails and (because other
+# network units are ordered After= this) the box comes up with NO firewall AND
+# no network — fail-closed, never fail-open.
+ExecStart=/usr/sbin/nft -f /etc/nftables/aegis-gateway.nft
+# On stop we do NOT flush to accept; we install a lockdown ruleset that drops
+# everything except loopback so a stopping firewall never opens the box.
+ExecStop=/usr/sbin/nft -f /etc/nftables/aegis-killswitch.nft
+# Hardening for the unit process itself.
+ProtectSystem=strict
+ProtectHome=yes
+ReadWritePaths=/run
+PrivateTmp=yes
+NoNewPrivileges=yes
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_NETLINK AF_INET AF_INET6
+
+[Install]
+WantedBy=sysinit.target

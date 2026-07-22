@@ -1,0 +1,25 @@
+[Unit]
+Description=Aegis Browser firstboot (apply managed Chromium policy + per-session user-data-dir)
+Documentation=file:///usr/local/sbin/aegis-browser-firstboot
+# Must complete before the kiosk starts Chromium, so the managed policy and a
+# clean per-session profile are in place at launch.
+DefaultDependencies=no
+After=local-fs.target systemd-tmpfiles-setup.service
+Before=aegis-kiosk.service network-pre.target
+Conflicts=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+# Installs the managed policy chosen by the manager (Balanced/Strict) into the
+# Chromium managed-policy dir, and prepares a fresh, RAM-backed user-data-dir for
+# this session (spec §6/§8: osobny user-data-dir; disposable profile). The
+# protection level is passed via /run/aegis/session.env (written by the manager
+# over the management channel) or defaults to strict (fail-closed to more privacy).
+ExecStart=/usr/local/sbin/aegis-browser-firstboot
+ProtectHome=no
+PrivateTmp=no
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

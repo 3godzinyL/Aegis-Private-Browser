@@ -1,0 +1,46 @@
+[Unit]
+Description=Aegis Gateway Tor transparent proxy (DNSPort/TransPort)
+Documentation=file:///etc/tor/torrc
+# Tor must start after the firewall is loaded (so its listeners are only ever
+# reachable from the isolated downstream net, never the upstream) and after the
+# network is up so it can reach guard nodes.
+After=aegis-gateway-firewall.service network-online.target
+Wants=network-online.target
+Requires=aegis-gateway-firewall.service
+# If the firewall is not up, Tor must not run — containment before connectivity.
+BindsTo=aegis-gateway-firewall.service
+
+[Service]
+Type=notify
+NotifyAccess=all
+User=debian-tor
+Group=debian-tor
+ExecStartPre=/usr/bin/tor --verify-config -f /etc/tor/torrc
+ExecStart=/usr/bin/tor -f /etc/tor/torrc
+ExecReload=/bin/kill -HUP $MAINPID
+KillSignal=SIGINT
+TimeoutStartSec=300
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=32768
+# Sandbox. Tor keeps its own data dir; everything else is read-only.
+RuntimeDirectory=tor
+RuntimeDirectoryMode=0700
+StateDirectory=tor
+StateDirectoryMode=0700
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+MemoryDenyWriteExecute=yes
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

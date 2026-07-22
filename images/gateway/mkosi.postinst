@@ -1,0 +1,43 @@
+#!/bin/sh
+# mkosi post-installation hook for the Aegis Gateway image (spec §4, §5, §10).
+#
+# Runs inside the image root after packages are installed. Its job is to enable
+# the gateway systemd units, lock down the base system, disable host-integration
+# bits, and ensure machine-id is randomized per instance (never host-derived).
+set -eu
+
+echo "[aegis-gateway postinst] hardening + enabling units"
+
+# --- systemd units (installed from files/ via ExtraTrees) -------------------
+systemctl enable aegis-gateway-firewall.service
+systemctl enable aegis-tor.service
+systemctl enable aegis-healthcheck.service
+systemctl enable systemd-networkd.service
+# Mask anything that could open a path around the firewall or leak host data.
+systemctl mask systemd-networkd-wait-online.service || true
+systemctl disable tor.service 2>/dev/null || true   # we run our own aegis-tor.service
+
+# qemu-guest-agent: keep ONLY for clean ACPI shutdown; the drop-in in files/
+# strips its clipboard / file-transfer / desktop capabilities.
+systemctl enable qemu-guest-agent.service 2>/dev/null || true
+
+# --- no SSH, no getty on serial beyond console -------------------------------
+systemctl mask ssh.service sshd.service 2>/dev/null || true
+
+# --- machine-id: randomized per instance, not host-derived -------------------
+# Empty file → systemd-machine-id-setup generates a fresh random id on first
+# boot of each cloned instance. Truncate rather than delete so /etc stays r/o-safe.
+: > /etc/machine-id
+rm -f /var/lib/dbus/machine-id 2>/dev/null || true
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+
+# --- lock root, remove default users, no password logins ---------------------
+passwd -l root 2>/dev/null || true
+
+# --- sysctl hardening is shipped in files/etc/sysctl.d; nothing to do here ----
+
+# --- tighten permissions on the ruleset --------------------------------------
+chmod 0644 /etc/nftables/aegis-gateway.nft 2>/dev/null || true
+chmod 0644 /etc/tor/torrc 2>/dev/null || true
+
+echo "[aegis-gateway postinst] done"

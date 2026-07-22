@@ -1,0 +1,38 @@
+Aegis Browser — /etc/machine-id handling (spec §4: "losowy identyfikator
+instancji VM generowany lokalnie"; §14 "brak współdzielonych identyfikatorów
+instalacji").
+
+WHY /etc/machine-id IS EMPTY IN THIS IMAGE
+------------------------------------------
+The shipped image contains a ZERO-BYTE /etc/machine-id on purpose. An empty
+machine-id is the systemd "first boot" marker: on the first boot of each cloned
+instance, systemd-machine-id-setup writes a FRESH, RANDOM 128-bit id.
+
+Because the base image is mounted READ-ONLY, systemd generates the id in a
+transient location (/run) each boot rather than persisting it. That means:
+
+  * The id is NEVER derived from the host (no host D-Bus id, no host MAC, no
+    host machine-id is ever read).
+  * Every instance — and every boot of an ephemeral instance — gets a different
+    random id, so two sessions cannot be correlated by machine-id.
+  * /var/lib/dbus/machine-id is a symlink to /etc/machine-id, so the D-Bus id
+    tracks the same random value.
+
+WHAT COULD LEAK A STABLE ID (AND IS AVOIDED)
+--------------------------------------------
+  * A non-empty machine-id baked into the image  → would be shared by all clones.
+    (Avoided: the file is empty and build.sh/mkosi.postinst truncate it.)
+  * qemu -uuid / SMBIOS host UUID passed through  → vm-controller assigns a fresh
+    random domain UUID per instance and does NOT expose the host UUID.
+  * A persistent DHCP client-id or fixed MAC      → vm-controller creates a fresh
+    virtual NIC (new MAC) per instance (IsolationPolicy.fresh_network_device);
+    systemd-networkd uses the interface MAC, not a stored client-id.
+
+DO NOT
+------
+  * Do not `systemd-machine-id-setup` at build time.
+  * Do not copy the host's /etc/machine-id into the image.
+  * Do not set a fixed <sysinfo>/SMBIOS serial in the libvirt domain XML.
+
+See also images/gateway/files/etc/machine-id (same handling) and the shared
+images/README.md for how vm-controller randomizes per-instance identifiers.

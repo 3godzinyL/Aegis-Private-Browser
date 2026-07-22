@@ -1,0 +1,113 @@
+#!/bin/sh
+# Aegis Gateway health probe (spec §5, §10, §11; Etap 1 "health-check", "kill switch").
+#
+# Emits a JSON document whose shape matches aegis_core::gateway::GatewayHealth:
+#   {
+#     "gateway_up": bool,
+#     "firewall_applied": bool,
+#     "tunnel": { "state": "up|down|connecting|failed",
+#                 "bootstrap_percent": 0..100, "detail": "..." },
+#     "killswitch": "armed|engaged"
+#   }
+# The manager (gateway-controller) reads this over the management channel to
+# render the diagnostics panel and to gate the preflight `tunnel_ready` check.
+#
+# Kill switch: if the tunnel is not fully bootstrapped, this probe swaps in
+# /etc/nftables/aegis-killswitch.nft (drop-all-but-loopback) so the Browser VM is
+# cut off WITHOUT waiting for the manager. Recovery re-applies the normal ruleset.
+# This guarantees "awaria ma zawsze kończyć się blokadą, nigdy połączeniem bez
+# ochrony" (spec §16) even if the host manager is gone.
+set -eu
+
+OUT="/run/aegis/health.json"
+INTERVAL=5
+LOOP=0
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --out) OUT="$2"; shift 2 ;;
+    --interval) INTERVAL="$2"; shift 2 ;;
+    --loop) LOOP=1; shift ;;
+    *) echo "unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+# Query Tor's control port (cookie auth on the loopback control socket) for the
+# bootstrap phase. We use a tiny protocol exchange over the ControlPort.
+tor_bootstrap_percent() {
+  # Returns 0..100, or -1 if the control port is unreachable.
+  # Uses the cookie file written by Tor (see torrc CookieAuthentication 1).
+  cookie="/run/tor/control.authcookie"
+  [ -r "$cookie" ] || { echo -1; return; }
+  # Hex-encode the 32-byte cookie for AUTHENTICATE.
+  hexcookie=$(od -An -tx1 "$cookie" 2>/dev/null | tr -d ' \n') || { echo -1; return; }
+  reply=$(printf 'AUTHENTICATE %s\r\nGETINFO status/bootstrap-phase\r\nQUIT\r\n' "$hexcookie" \
+            | timeout 3 nc -w3 127.0.0.1 9051 2>/dev/null) || { echo -1; return; }
+  # Parse PROGRESS=NN out of the reply.
+  pct=$(printf '%s' "$reply" | sed -n 's/.*PROGRESS=\([0-9]\{1,3\}\).*/\1/p' | head -n1)
+  [ -n "$pct" ] && echo "$pct" || echo -1
+}
+
+firewall_applied() {
+  # The normal ruleset defines a table named "aegis". Kill-switch defines
+  # "aegis_lock". Report applied when either aegis table is present.
+  if nft list tables 2>/dev/null | grep -qE 'table (inet|ip) aegis(_lock)?'; then
+    echo 1
+  else
+    echo 0
+  fi
+}
+
+engage_killswitch() {
+  # Idempotent: only swap if we are not already locked.
+  if ! nft list tables 2>/dev/null | grep -q 'aegis_lock'; then
+    nft -f /etc/nftables/aegis-killswitch.nft 2>/dev/null || true
+  fi
+}
+
+restore_firewall() {
+  if nft list tables 2>/dev/null | grep -q 'aegis_lock'; then
+    nft -f /etc/nftables/aegis-gateway.nft 2>/dev/null || true
+  fi
+}
+
+write_health() {
+  pct="$1"; fw="$2"
+  if [ "$pct" -ge 100 ] 2>/dev/null; then
+    tstate="up"; ks="armed"; detail="tor bootstrapped"
+    restore_firewall
+  elif [ "$pct" -ge 0 ] 2>/dev/null; then
+    tstate="connecting"; ks="engaged"; detail="tor bootstrapping"
+    engage_killswitch
+  else
+    tstate="down"; ks="engaged"; detail="tor control port unreachable"
+    engage_killswitch
+  fi
+  # gateway_up is true whenever this probe is running.
+  fwbool=$( [ "$fw" -eq 1 ] && echo true || echo false )
+  pctfield=$( [ "$pct" -ge 0 ] 2>/dev/null && echo "$pct" || echo null )
+
+  tmp="${OUT}.tmp"
+  cat > "$tmp" <<EOF
+{
+  "gateway_up": true,
+  "firewall_applied": ${fwbool},
+  "tunnel": { "state": "${tstate}", "bootstrap_percent": ${pctfield}, "detail": "${detail}" },
+  "killswitch": "${ks}"
+}
+EOF
+  mv -f "$tmp" "$OUT"
+}
+
+run_once() {
+  pct=$(tor_bootstrap_percent)
+  fw=$(firewall_applied)
+  write_health "$pct" "$fw"
+}
+
+mkdir -p "$(dirname "$OUT")"
+if [ "$LOOP" -eq 1 ]; then
+  while :; do run_once; sleep "$INTERVAL"; done
+else
+  run_once
+fi

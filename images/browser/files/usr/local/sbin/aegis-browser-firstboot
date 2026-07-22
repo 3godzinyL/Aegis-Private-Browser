@@ -1,0 +1,63 @@
+#!/bin/sh
+# Aegis Browser firstboot (spec §6, §7, §8, §9, §10; Etap 2, Etap 4).
+#
+# Runs once per boot, BEFORE the kiosk launches Chromium. Two jobs:
+#
+#   1. Apply the managed Chromium policy for this session's protection level
+#      (Balanced/Strict) into /etc/chromium/policies/managed/. The policy files
+#      ship in the image at /usr/share/aegis/policies/{balanced,strict}.json
+#      (copied from browser/policies/managed/). Chromium reads managed policy
+#      from /etc/chromium/policies/managed/ on Linux.
+#
+#   2. Prepare a fresh, RAM-backed per-session user-data-dir so no profile state
+#      persists across sessions (spec §8 disposable profiles). The dir lives on
+#      tmpfs (/home/aegis is tmpfs — see fstab) and is created empty each boot.
+#
+# The manager writes the desired level (and any per-session flags) to
+# /run/aegis/session.env over the management channel BEFORE this runs; if absent
+# we fail closed to Strict (more privacy). No host state is ever consulted.
+set -eu
+
+SESSION_ENV="/run/aegis/session.env"
+POLICY_SRC="/usr/share/aegis/policies"
+POLICY_DST="/etc/chromium/policies/managed"
+USER_DATA_DIR="/home/aegis/.config/aegis-session"
+
+# --- 1. determine protection level (default: strict, fail-closed) ------------
+LEVEL="strict"
+if [ -r "$SESSION_ENV" ]; then
+  # session.env may contain: AEGIS_PROTECTION_LEVEL=balanced|strict
+  . "$SESSION_ENV"
+  case "${AEGIS_PROTECTION_LEVEL:-}" in
+    balanced|Balanced|BALANCED) LEVEL="balanced" ;;
+    strict|Strict|STRICT)       LEVEL="strict" ;;
+    *)                          LEVEL="strict" ;;
+  esac
+fi
+echo "[firstboot] protection level: ${LEVEL}"
+
+# --- 2. install the managed policy -------------------------------------------
+# /etc is on the read-only root; the managed-policy dir is a tmpfs mount (fstab)
+# so we can write the chosen policy at boot without a persistent overlay.
+mkdir -p "$POLICY_DST"
+if [ -r "${POLICY_SRC}/${LEVEL}.json" ]; then
+  cp -f "${POLICY_SRC}/${LEVEL}.json" "${POLICY_DST}/aegis.json"
+  chmod 0644 "${POLICY_DST}/aegis.json"
+else
+  echo "[firstboot] FATAL: policy ${LEVEL}.json missing" >&2
+  exit 1
+fi
+
+# --- 3. fresh per-session user-data-dir (disposable) -------------------------
+rm -rf "$USER_DATA_DIR"
+mkdir -p "$USER_DATA_DIR"
+chown -R aegis:aegis "$USER_DATA_DIR" 2>/dev/null || true
+
+# Export the resolved values for the kiosk unit (which launches Chromium).
+mkdir -p /run/aegis
+cat > /run/aegis/browser.env <<EOF
+AEGIS_PROTECTION_LEVEL=${LEVEL}
+AEGIS_USER_DATA_DIR=${USER_DATA_DIR}
+EOF
+
+echo "[firstboot] applied ${LEVEL} policy; user-data-dir ${USER_DATA_DIR}"

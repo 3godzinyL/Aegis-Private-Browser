@@ -1,0 +1,46 @@
+#!/bin/sh
+# mkosi post-installation hook for the Aegis Browser image (spec §4, §6, §10).
+set -eu
+
+echo "[aegis-browser postinst] hardening + enabling units"
+
+# --- systemd units (from files/ via ExtraTrees) ------------------------------
+systemctl enable aegis-browser-firstboot.service
+systemctl enable systemd-networkd.service
+systemctl enable qemu-guest-agent.service 2>/dev/null || true
+# The kiosk target autostarts cage → Chromium once firstboot has applied config.
+systemctl enable aegis-kiosk.service
+systemctl set-default multi-user.target
+
+# --- absolutely no host-integration daemons ----------------------------------
+for svc in spice-vdagent spice-vdagentd ssh sshd smbd nmbd NetworkManager \
+           open-vm-tools vboxadd; do
+  systemctl mask "${svc}.service" 2>/dev/null || true
+done
+systemctl mask systemd-networkd-wait-online.service 2>/dev/null || true
+
+# --- machine-id: randomized per instance, not host-derived -------------------
+: > /etc/machine-id
+rm -f /var/lib/dbus/machine-id 2>/dev/null || true
+ln -sf /etc/machine-id /var/lib/dbus/machine-id
+
+# --- unprivileged browser user (no login shell for host access) --------------
+if ! id aegis >/dev/null 2>&1; then
+  useradd --system --create-home --home-dir /home/aegis \
+          --shell /usr/sbin/nologin aegis
+fi
+
+# --- lock root, no password logins -------------------------------------------
+passwd -l root 2>/dev/null || true
+
+# --- Chromium sandbox must be setuid-root and present ------------------------
+# (chrome-sandbox needs mode 4755; the read-only root preserves this.)
+if [ -e /usr/lib/chromium/chrome-sandbox ]; then
+  chmod 4755 /usr/lib/chromium/chrome-sandbox
+fi
+
+# --- strip docs/man/apt lists for size + determinism -------------------------
+apt-get clean 2>/dev/null || true
+rm -rf /var/lib/apt/lists/* /usr/share/doc/* /usr/share/man/* /var/log/* 2>/dev/null || true
+
+echo "[aegis-browser postinst] done"

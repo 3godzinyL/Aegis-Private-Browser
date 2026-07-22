@@ -1,0 +1,26 @@
+# Aegis Browser — read-only root, tmpfs writable layers (spec §8, §10).
+#
+# vm-controller mounts the signed base image read-only with a disposable qcow2
+# overlay per session. Inside the guest, / is read-only; the only writable areas
+# are RAM-backed tmpfs mounts that are wiped on every reboot and NEVER persisted
+# to the overlay — so an ephemeral session leaves no profile residue (spec §8:
+# "warstwa zapisu zniszczona po zakończeniu sesji jednorazowej"; §14 disposable).
+#
+# Writable-by-design (per §10 "oddzielny zapis dla /home, /tmp i pobrań"):
+#   /home           browser profile / user-data-dir (tmpfs)
+#   /tmp            general scratch + Chromium shm (tmpfs)
+#   /var/downloads  quarantined downloads (tmpfs; exported only via explicit,
+#                   user-driven flow — never auto-synced to host, spec §9)
+#
+# <file system>  <mount point>                  <type>  <options>                                   <dump> <pass>
+/dev/vda         /                               ext4    ro,noatime,nodev                            0      1
+
+tmpfs            /home                           tmpfs   rw,nosuid,nodev,mode=0755,size=1024m         0      0
+tmpfs            /tmp                            tmpfs   rw,nosuid,nodev,size=1024m                   0      0
+tmpfs            /var/downloads                  tmpfs   rw,nosuid,nodev,noexec,mode=0700,size=2048m  0      0
+tmpfs            /var/log                        tmpfs   rw,nosuid,nodev,noexec,size=32m              0      0
+tmpfs            /var/tmp                        tmpfs   rw,nosuid,nodev,noexec,size=64m              0      0
+tmpfs            /run                            tmpfs   rw,nosuid,nodev,noexec,size=64m              0      0
+# The Chromium managed-policy dir is tmpfs so firstboot can write the chosen
+# level (balanced/strict) onto the read-only root at boot.
+tmpfs            /etc/chromium/policies/managed  tmpfs   rw,nosuid,nodev,noexec,mode=0755,size=1m     0      0

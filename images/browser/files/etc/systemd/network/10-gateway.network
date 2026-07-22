@@ -1,0 +1,24 @@
+# Aegis Browser — the ONE and only NIC (eth0 → isolated gateway network).
+#
+# The Browser VM has exactly one virtual interface and its only route is to the
+# gateway at 10.152.152.1 (spec §3/§5: "jedna karta sieciowa prowadząca wyłącznie
+# do Gateway VM"). It obtains its address by DHCP from the gateway's downstream
+# DHCP server; the default route and DNS both point at the gateway, which
+# transparently torifies everything. No IPv6 (disabled in sysctl and here).
+[Match]
+Name=eth0
+
+[Network]
+DHCP=ipv4
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+# DNS is served by the gateway (10.152.152.1) and redirected to Tor's DNSPort;
+# the browser never talks to any other resolver.
+UseDomains=no
+
+[DHCPv4]
+UseDNS=yes
+UseNTP=no
+UseHostname=no
+# The gateway is the only router; never accept an alternative route.
+UseRoutes=yes

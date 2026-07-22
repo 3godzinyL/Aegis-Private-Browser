@@ -1,0 +1,36 @@
+#!/usr/sbin/nft -f
+#
+# Aegis Gateway VM — KILL SWITCH (drop-all isolation state).
+#
+# Loaded by aegis-healthcheck (on tunnel loss) and by
+# aegis-gateway-firewall.service ExecStop. Mirrors firewall/nftables/killswitch.nft
+# and KillSwitchState::Engaged. There is no accept rule that could leak: loopback
+# only, so local health/IPC keeps working while the Browser VM is totally cut off.
+#
+# Spec: §5 ("odcina ruch natychmiast po utracie tunelu"), §14, §16 ("awaria ma
+# zawsze kończyć się blokadą, nigdy połączeniem bez ochrony").
+#
+# The table is named with an "aegis_lock" marker chain so aegis-healthcheck can
+# detect the engaged state (see `nft list tables | grep aegis_lock`).
+
+# Remove any live filtering/NAT tables so nothing can carry traffic while engaged.
+table inet filter
+delete table inet filter
+table ip nat
+delete table ip nat
+table ip6 filter
+delete table ip6 filter
+
+# IPv4/IPv6 drop-all filter. Loopback excepted.
+table inet aegis_lock {
+    chain input   { type filter hook input   priority filter; policy drop; iif "lo" accept; }
+    chain forward { type filter hook forward priority filter; policy drop; }
+    chain output  { type filter hook output  priority filter; policy drop; oif "lo" accept; }
+}
+
+# Belt-and-suspenders IPv6 drop-all (separate family table).
+table ip6 aegis_lock6 {
+    chain input   { type filter hook input   priority filter; policy drop; iif "lo" accept; }
+    chain forward { type filter hook forward priority filter; policy drop; }
+    chain output  { type filter hook output  priority filter; policy drop; oif "lo" accept; }
+}

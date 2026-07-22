@@ -55,8 +55,17 @@ if not exist ".demo\config.toml" (
   ) > ".demo\config.toml"
 )
 
+REM Host-browser mode routes through a SOCKS proxy. Tor Browser's built-in Tor
+REM listens on 127.0.0.1:9150 (a standalone Tor Expert Bundle uses 9050). Open
+REM Tor Browser before starting a host session, or override AEGIS_HOST_PROXY.
+if not defined AEGIS_HOST_PROXY set "AEGIS_HOST_PROXY=socks5h://127.0.0.1:9150"
+
+REM To use Firefox / Tor Browser as the session browser, point this at your
+REM firefox.exe (Tor Browser: ...\Tor Browser\Browser\firefox.exe), e.g.:
+REM   set "AEGIS_FIREFOX_BIN=C:\path\to\Tor Browser\Browser\firefox.exe"
+
 echo [Aegis] Starting the daemon in a new window...
-start "Aegis Daemon" cmd /k "target\release\aegis-daemon --config .demo\config.toml --dev-port 7690 --dev-token .demo\ipc.token"
+start "Aegis Daemon" cmd /k "set AEGIS_HOST_PROXY=%AEGIS_HOST_PROXY%& set AEGIS_FIREFOX_BIN=%AEGIS_FIREFOX_BIN%& target\release\aegis-daemon --config .demo\config.toml --dev-port 7690 --dev-token .demo\ipc.token"
 
 echo [Aegis] Waiting for the daemon...
 timeout /t 3 >nul

@@ -1,0 +1,20 @@
+# Aegis Gateway — UPSTREAM NIC (eth0 → host NAT network).
+#
+# The only interface with a path to the outside. DHCP from the host NAT network
+# (libvirt default/aegis-upstream). No IPv6 (disabled by sysctl + here). This is
+# where Tor's circuits egress. gateway-controller may pin a static address; DHCP
+# is the default matching the libvirt NAT network vm-controller renders.
+[Match]
+Name=eth0
+
+[Network]
+DHCP=ipv4
+LinkLocalAddressing=no
+IPv6AcceptRA=no
+# No DNS from the host network is used by the guest resolver; Tor resolves.
+UseDomains=no
+
+[DHCPv4]
+UseDNS=no
+UseNTP=no
+UseHostname=no
