@@ -46,10 +46,9 @@
       </div>
 
       <!-- ================= Two-tab "New Private Session" modal ============ -->
-      <!-- A well-managed, two-tab flow. Tab 1 (Setup) walks top-to-bottom:
-           platform → name/type → four one-click safety tiers → an expandable
-           Advanced section. Tab 2 (Preview) shows exactly what a site will see,
-           computed from aegis-core ProfileSpec::preview() and updated live. -->
+      <!-- Tab 1 configures the requested environment. Tab 2 shows configured
+           target values; the runtime diagnostics panel below separately marks
+           measured and verified observations from a running session. -->
       <div id="create-modal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="create-modal-title">
         <form id="create-form" class="create-modal" autocomplete="off">
           <div class="modal-head">
@@ -174,14 +173,14 @@
                         <input type="radio" name="kind" value="ephemeral" checked />
                         <span class="choice-body">
                           <span class="choice-title" data-i18n="opt_ephemeral">Ephemeral (leaves nothing behind)</span>
-                          <span class="choice-desc" data-i18n="opt_ephemeral_desc">Destroyed at close. Nothing is written to disk.</span>
+                          <span class="choice-desc" data-i18n="opt_ephemeral_desc">Destroyed at close. Diagnostics show whether disposal was runtime-verified.</span>
                         </span>
                       </label>
                       <label class="choice">
                         <input type="radio" name="kind" value="persistent" />
                         <span class="choice-body">
-                          <span class="choice-title" data-i18n="opt_persistent">Persistent (encrypted volume)</span>
-                          <span class="choice-desc" data-i18n="opt_persistent_desc">Re-openable, stored in an encrypted volume.</span>
+                          <span class="choice-title" data-i18n="opt_persistent">Persistent (encryption required)</span>
+                          <span class="choice-desc" data-i18n="opt_persistent_desc">Re-openable. Aegis must verify the encrypted volume before claiming encryption.</span>
                         </span>
                       </label>
                     </div>
@@ -331,7 +330,7 @@
 
             <!-- ========================== TAB 2 — Preview ================== -->
             <div id="pane-preview" class="tab-pane hidden" role="tabpanel" aria-labelledby="tab-preview">
-              <p class="preview-intro" data-i18n="preview_intro">This is exactly what a website will observe for this profile. It updates as you change the setup.</p>
+              <p class="preview-intro" data-i18n="preview_intro">Configured target values for this profile. Runtime diagnostics distinguish configured, measured and verified values.</p>
               <div id="cf-preview-error" class="inline-note inline-note-warn hidden"></div>
               <div class="preview-grid" id="cf-preview-grid">
                 <div class="preview-row">
@@ -459,39 +458,96 @@
         <div class="badge-meta" id="badge-meta"></div>
       </div>
 
+      <div class="evidence-legend" aria-label="Evidence levels">
+        <span data-i18n="evidence_legend">Evidence:</span>
+        <span class="evidence-badge evidence-configured" data-i18n="evidence_configured">configured</span>
+        <span class="evidence-badge evidence-measured" data-i18n="evidence_measured">measured</span>
+        <span class="evidence-badge evidence-verified" data-i18n="evidence_verified">verified</span>
+        <span class="evidence-badge evidence-unknown" data-i18n="evidence_unknown">unknown</span>
+      </div>
+
+      <h3 class="subhead" data-i18n="session_security">Session security</h3>
+
       <div class="diag-grid">
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_public_ip">Public IP (from session)</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_public_ip">Public IP (from session)</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-public-ip">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_dns">DNS</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_isolation">Isolation</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-isolation">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_engine">Browser engine</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-engine">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_cohort">Cohort profile</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val mono" id="diag-cohort">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_protection_level">Protection level</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-protection-level">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_gateway">Gateway</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-gateway">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_tunnel">Tunnel</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-tunnel">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_dns">DNS</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-dns">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_ipv6">IPv6</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_ipv6">IPv6</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-ipv6">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_webrtc">WebRTC</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_webrtc">WebRTC</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-webrtc">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_devices">Available devices</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_killswitch">Kill-switch activity</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-killswitch">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_browser_process">Browser process</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-browser-process">&mdash;</span>
+        </div>
+        <div class="diag-card">
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_devices">Available devices</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-devices">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_render">Render mode</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_render">Render mode</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-render">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_persistence">Profile persistence</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_persistence">Profile persistence</span><span class="evidence-badge evidence-unknown">unknown</span></div>
           <span class="diag-val" id="diag-persistence">&mdash;</span>
         </div>
         <div class="diag-card">
-          <span class="diag-key" data-i18n="diag_killswitch">Kill-switch activity</span>
-          <span class="diag-val" id="diag-killswitch">&mdash;</span>
+          <div class="diag-card-top"><span class="diag-key" data-i18n="diag_storage">Storage encryption</span><span class="evidence-badge evidence-unknown">unknown</span></div>
+          <span class="diag-val" id="diag-storage">&mdash;</span>
         </div>
+      </div>
+
+      <h3 class="subhead" data-i18n="what_sites_see">What websites can see</h3>
+      <p class="section-intro" data-i18n="what_sites_see_intro">Configured values are targets. Only measured or verified values came back from the running browser environment.</p>
+      <div class="site-grid">
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_public_ip">Public IP</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val mono" id="site-public-ip">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_user_agent">User-Agent</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-user-agent">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_viewport">Screen / viewport</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-viewport">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_timezone">Timezone</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-timezone">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_language">Language / locale</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-language">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_cpu">CPU</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-cpu">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key">WebGL</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-webgl">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key">WebGPU</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-webgpu">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key">Canvas</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-canvas">&mdash;</span></div>
+        <div class="diag-card"><div class="diag-card-top"><span class="diag-key" data-i18n="site_media">Media devices</span><span class="evidence-badge evidence-unknown">unknown</span></div><span class="diag-val" id="site-media">&mdash;</span></div>
       </div>
 
       <h3 class="subhead" data-i18n="preflight_checks">Preflight checks</h3>

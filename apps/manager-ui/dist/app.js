@@ -112,9 +112,9 @@ const I18N = {
     sec_type_note: "Whether anything is kept between sessions.",
     field_type: "Type",
     opt_ephemeral: "Ephemeral (leaves nothing behind)",
-    opt_ephemeral_desc: "Destroyed at close. Nothing is written to disk.",
-    opt_persistent: "Persistent (encrypted volume)",
-    opt_persistent_desc: "Re-openable, stored in an encrypted volume.",
+    opt_ephemeral_desc: "Destroyed at close. Diagnostics show whether disposal was runtime-verified.",
+    opt_persistent: "Persistent (encryption required)",
+    opt_persistent_desc: "Re-openable. Aegis must verify the encrypted volume before claiming encryption.",
 
     // (d) advanced
     sec_advanced: "Advanced (fine-tune on top of the preset)",
@@ -169,7 +169,7 @@ const I18N = {
     vpn_disabled_host: "VPN is unavailable in host mode — use Tor or a proxy.",
 
     // ---- Preview tab (aegis-core ProfileSpec::preview) ----
-    preview_intro: "This is exactly what a website will observe for this profile. It updates as you change the setup.",
+    preview_intro: "Configured target values for this profile. After launch, runtime diagnostics distinguish configured values from measured and verified values.",
     pv_browser: "Browser",
     pv_user_agent: "User-Agent",
     pv_user_agent_note: "Representative — the real engine version is used at runtime.",
@@ -228,7 +228,19 @@ const I18N = {
     diagnostics_title: "Diagnostics",
     no_active_session: "No active session",
     select_session: "Select a session…",
+    evidence_legend: "Evidence:",
+    evidence_configured: "configured",
+    evidence_measured: "measured",
+    evidence_verified: "verified",
+    evidence_unknown: "unknown",
+    session_security: "Session security",
     diag_public_ip: "Public IP (from session)",
+    diag_isolation: "Isolation",
+    diag_engine: "Browser engine",
+    diag_cohort: "Cohort profile",
+    diag_protection_level: "Protection level",
+    diag_gateway: "Gateway",
+    diag_tunnel: "Tunnel",
     diag_dns: "DNS",
     diag_ipv6: "IPv6",
     diag_webrtc: "WebRTC",
@@ -236,6 +248,17 @@ const I18N = {
     diag_render: "Render mode",
     diag_persistence: "Profile persistence",
     diag_killswitch: "Kill-switch activity",
+    diag_browser_process: "Browser process",
+    diag_storage: "Storage encryption",
+    what_sites_see: "What websites can see",
+    what_sites_see_intro: "Configured values are targets. Only measured or verified values came back from the running browser environment.",
+    site_public_ip: "Public IP",
+    site_user_agent: "User-Agent",
+    site_viewport: "Screen / viewport",
+    site_timezone: "Timezone",
+    site_language: "Language / locale",
+    site_cpu: "CPU",
+    site_media: "Media devices",
     preflight_checks: "Preflight checks",
     subsystem_details: "Subsystem details",
     no_details: "No details.",
@@ -361,9 +384,9 @@ const I18N = {
     sec_type_note: "Czy cokolwiek jest zachowywane między sesjami.",
     field_type: "Typ",
     opt_ephemeral: "Jednorazowy (nie zostawia śladów)",
-    opt_ephemeral_desc: "Niszczony przy zamknięciu. Nic nie jest zapisywane na dysku.",
-    opt_persistent: "Trwały (zaszyfrowany wolumen)",
-    opt_persistent_desc: "Ponownie otwieralny, przechowywany w zaszyfrowanym wolumenie.",
+    opt_ephemeral_desc: "Niszczony przy zamknięciu. Diagnostyka pokazuje, czy usunięcie potwierdzono w runtime.",
+    opt_persistent: "Trwały (wymagane szyfrowanie)",
+    opt_persistent_desc: "Można otworzyć ponownie. Aegis musi zweryfikować wolumen, zanim nazwie go szyfrowanym.",
 
     // (d) zaawansowane
     sec_advanced: "Zaawansowane (dostrajanie na wierzchu ustawienia)",
@@ -418,7 +441,7 @@ const I18N = {
     vpn_disabled_host: "VPN jest niedostępny w trybie hosta — użyj Tora lub proxy.",
 
     // ---- karta Podgląd (aegis-core ProfileSpec::preview) ----
-    preview_intro: "To dokładnie to, co strona internetowa zobaczy dla tego profilu. Aktualizuje się przy zmianie konfiguracji.",
+    preview_intro: "Docelowe wartości skonfigurowane dla profilu. Po uruchomieniu diagnostyka odróżnia konfigurację od pomiaru i weryfikacji.",
     pv_browser: "Przeglądarka",
     pv_user_agent: "User-Agent",
     pv_user_agent_note: "Reprezentatywny — w czasie działania używana jest prawdziwa wersja silnika.",
@@ -477,7 +500,19 @@ const I18N = {
     diagnostics_title: "Diagnostyka",
     no_active_session: "Brak aktywnej sesji",
     select_session: "Wybierz sesję…",
+    evidence_legend: "Dowód:",
+    evidence_configured: "skonfigurowane",
+    evidence_measured: "zmierzone",
+    evidence_verified: "zweryfikowane",
+    evidence_unknown: "nieznane",
+    session_security: "Bezpieczeństwo sesji",
     diag_public_ip: "Publiczny IP (z sesji)",
+    diag_isolation: "Izolacja",
+    diag_engine: "Silnik przeglądarki",
+    diag_cohort: "Profil kohortowy",
+    diag_protection_level: "Poziom ochrony",
+    diag_gateway: "Brama",
+    diag_tunnel: "Tunel",
     diag_dns: "DNS",
     diag_ipv6: "IPv6",
     diag_webrtc: "WebRTC",
@@ -485,6 +520,17 @@ const I18N = {
     diag_render: "Tryb renderowania",
     diag_persistence: "Trwałość profilu",
     diag_killswitch: "Aktywność wyłącznika awaryjnego",
+    diag_browser_process: "Proces przeglądarki",
+    diag_storage: "Szyfrowanie danych",
+    what_sites_see: "Co widzą strony internetowe",
+    what_sites_see_intro: "Wartości skonfigurowane są celami. Tylko wartości zmierzone lub zweryfikowane wróciły z działającego środowiska przeglądarki.",
+    site_public_ip: "Publiczny IP",
+    site_user_agent: "User-Agent",
+    site_viewport: "Ekran / viewport",
+    site_timezone: "Strefa czasowa",
+    site_language: "Język / locale",
+    site_cpu: "CPU",
+    site_media: "Urządzenia multimedialne",
     preflight_checks: "Testy wstępne",
     subsystem_details: "Szczegóły podsystemów",
     no_details: "Brak szczegółów.",
@@ -735,7 +781,7 @@ async function deleteProfile(id, name, btn) {
 // The two-tab "New Private Session" flow. Tab 1 (Setup) walks top-to-bottom:
 // platform → name/type → four one-click safety tiers → an expandable Advanced
 // section that fine-tunes on top of the chosen preset. Tab 2 (Preview) shows
-// exactly what a site will see, computed by the backend from ProfileSpec::preview.
+// the configured target values, computed by the backend from ProfileSpec::preview.
 // The create-args -> ProfileSpec mapping itself lives entirely in Rust.
 
 /** The current value of a radio group by its `name` attribute. */
@@ -959,8 +1005,8 @@ function collectCreateArgs() {
 }
 
 // --- live preview (Tab 2) ---------------------------------------------------
-// Computed by the backend from ProfileSpec::preview() so it can never drift from
-// what a created profile presents. Debounced so typing stays smooth.
+// Computed by the backend from ProfileSpec::preview() so it stays aligned with
+// the configured policy. Runtime evidence is shown only in Diagnostics.
 
 function schedulePreview() {
   if (PREVIEW_TIMER) clearTimeout(PREVIEW_TIMER);
@@ -1135,6 +1181,39 @@ function levelClass(level) {
   return "diag-val lvl-" + (level || "unknown");
 }
 
+const DIAG_VALUE_IDS = [
+  "#diag-public-ip", "#diag-isolation", "#diag-engine", "#diag-cohort",
+  "#diag-protection-level", "#diag-gateway", "#diag-tunnel", "#diag-dns",
+  "#diag-ipv6", "#diag-webrtc", "#diag-killswitch", "#diag-browser-process",
+  "#diag-devices", "#diag-render", "#diag-persistence", "#diag-storage",
+  "#site-public-ip", "#site-user-agent", "#site-viewport", "#site-timezone",
+  "#site-language", "#site-cpu", "#site-webgl", "#site-webgpu",
+  "#site-canvas", "#site-media",
+];
+
+function evidenceToken(value) {
+  return ["configured", "measured", "verified"].includes(value) ? value : "unknown";
+}
+
+function setDiagnosticNode(node, item) {
+  const evidence = evidenceToken(item && item.evidence);
+  const level = (item && item.level) || "unknown";
+  const isMono = node.classList.contains("mono");
+  node.textContent = (item && (item.detail || item.level)) || "—";
+  node.className = levelClass(level) + (isMono ? " mono" : "");
+
+  const card = node.closest(".diag-card");
+  const badge = card && card.querySelector(".evidence-badge");
+  if (badge) {
+    badge.className = "evidence-badge evidence-" + evidence;
+    badge.textContent = t("evidence_" + evidence);
+  }
+}
+
+function clearDiagnosticNodes() {
+  DIAG_VALUE_IDS.forEach((id) => setDiagnosticNode($(id), null));
+}
+
 // Map the daemon's diagnostic items (keyed by subsystem) onto the fixed cards.
 // Unknown keys are appended to the subsystem-details list.
 function applyItems(items) {
@@ -1145,18 +1224,19 @@ function applyItems(items) {
     const node = $(id);
     let found = null;
     for (const k of keys) { if (byKey[k]) { found = byKey[k]; break; } }
-    if (found) {
-      node.textContent = found.detail || found.level;
-      node.className = levelClass(found.level);
-    } else {
-      node.textContent = "—";
-      node.className = "diag-val lvl-unknown";
-    }
+    setDiagnosticNode(node, found);
     return found ? found.key : null;
   };
 
   const used = new Set();
   const mark = (k) => { if (k) used.add(k); };
+  mark(cardFor("#diag-public-ip", ["site_public_ip"]));
+  mark(cardFor("#diag-isolation", ["isolation"]));
+  mark(cardFor("#diag-engine", ["browser_engine"]));
+  mark(cardFor("#diag-cohort", ["cohort_profile"]));
+  mark(cardFor("#diag-protection-level", ["protection_level"]));
+  mark(cardFor("#diag-gateway", ["gateway", "gateway_ready"]));
+  mark(cardFor("#diag-tunnel", ["tunnel", "tunnel_ready"]));
   mark(cardFor("#diag-dns", ["dns", "dns_route", "dns_status"]));
   mark(cardFor("#diag-ipv6", ["ipv6", "ipv6_status"]));
   mark(cardFor("#diag-webrtc", ["webrtc", "webrtc_status"]));
@@ -1164,6 +1244,19 @@ function applyItems(items) {
   mark(cardFor("#diag-render", ["render_mode", "render", "webgl", "rendering"]));
   mark(cardFor("#diag-persistence", ["persistence", "profile_persistence", "profile"]));
   mark(cardFor("#diag-killswitch", ["kill_switch", "killswitch", "kill-switch"]));
+  mark(cardFor("#diag-browser-process", ["browser_process"]));
+  mark(cardFor("#diag-storage", ["storage_encryption"]));
+
+  mark(cardFor("#site-public-ip", ["site_public_ip"]));
+  mark(cardFor("#site-user-agent", ["site_user_agent"]));
+  mark(cardFor("#site-viewport", ["site_viewport"]));
+  mark(cardFor("#site-timezone", ["site_timezone"]));
+  mark(cardFor("#site-language", ["site_language"]));
+  mark(cardFor("#site-cpu", ["site_cpu"]));
+  mark(cardFor("#site-webgl", ["site_webgl"]));
+  mark(cardFor("#site-webgpu", ["site_webgpu"]));
+  mark(cardFor("#site-canvas", ["site_canvas"]));
+  mark(cardFor("#site-media", ["site_media_devices"]));
 
   // Remaining items go into the details list.
   const list = $("#items-list");
@@ -1176,7 +1269,8 @@ function applyItems(items) {
   for (const it of extras) {
     const li = el("li", "item-row");
     li.appendChild(el("span", "item-key", it.key));
-    const d = el("span", "item-detail " + ("lvl-" + it.level), `${it.level} — ${it.detail}`);
+    const evidence = evidenceToken(it.evidence);
+    const d = el("span", "item-detail " + ("lvl-" + it.level), `${t("evidence_" + evidence)} · ${it.level} — ${it.detail}`);
     li.appendChild(d);
     list.appendChild(li);
   }
@@ -1195,6 +1289,8 @@ function renderChecks(checks) {
     const li = el("li", "check " + cls);
     li.appendChild(el("span", "check-icon", icon));
     li.appendChild(el("span", "check-name", c.id));
+    const evidence = evidenceToken(c.evidence);
+    li.appendChild(el("span", "evidence-badge evidence-" + evidence, t("evidence_" + evidence)));
     li.appendChild(el("span", "check-detail", c.detail));
     ul.appendChild(li);
   }
@@ -1206,9 +1302,7 @@ let LAST_DIAG = null; // { kind: 'session'|'doctor'|'none', data }
 function resetDiagnostics() {
   LAST_DIAG = { kind: "none" };
   setBadge("none", t("prot_none"), t("no_session_selected"));
-  $("#diag-public-ip").textContent = "—";
-  ["#diag-dns","#diag-ipv6","#diag-webrtc","#diag-devices","#diag-render","#diag-persistence","#diag-killswitch"]
-    .forEach((id) => { $(id).textContent = "—"; $(id).className = "diag-val lvl-unknown"; });
+  clearDiagnosticNodes();
   $("#checklist").innerHTML = "";
   $("#checklist").appendChild(el("li", "check-empty", t("select_session_checks")));
   $("#items-list").innerHTML = "";
@@ -1225,9 +1319,14 @@ async function loadDiagnostics(sessionId) {
       d.protection_label,
       d.permits_browsing ? t("browsing_permitted") : t("browsing_blocked")
     );
-    $("#diag-public-ip").textContent = d.public_ip || t("not_observed");
-    $("#diag-public-ip").className = "diag-val mono " + (d.public_ip ? "lvl-ok" : "lvl-unknown");
     applyItems(d.items);
+    // Compatibility with an older daemon that returns the observation but no
+    // structured `site_public_ip` item.
+    if (d.public_ip && !(d.items || []).some((it) => it.key === "site_public_ip")) {
+      const fallback = { detail: d.public_ip, level: "unknown", evidence: "measured" };
+      setDiagnosticNode($("#diag-public-ip"), fallback);
+      setDiagnosticNode($("#site-public-ip"), fallback);
+    }
     renderChecks(d.checks);
   } catch (e) {
     resetDiagnostics();
@@ -1268,6 +1367,7 @@ async function runDoctor() {
     const d = await tauriInvoke("doctor");
     LAST_DIAG = { kind: "doctor", data: d };
     setBadge(d.protection_status, d.protection_label, t("doctor_selftest"));
+    clearDiagnosticNodes();
     renderChecks(d.checks);
     $("#items-list").innerHTML = "";
     $("#items-list").appendChild(el("li", "check-empty", t("doctor_daemon_only")));
