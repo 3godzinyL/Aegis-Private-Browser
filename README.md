@@ -2,34 +2,59 @@
 
 # 🛡️ Aegis Private Browser
 
-**Disposable, encrypted browsing environments with a Whonix-style network split — built for _unlinkability to your real computer_, not empty "100% anonymous" promises.**
+**Disposable, isolated browsing environments with a Whonix-style network split — built for _unlinkability to your real computer_, not empty "100% anonymous" promises.**
 
 [![License: GPL-3.0](https://img.shields.io/badge/License-GPL--3.0--or--later-blue.svg)](LICENSE)
 [![Rust 1.82+](https://img.shields.io/badge/Rust-1.82%2B-orange.svg?logo=rust)](rust-toolchain.toml)
 [![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows%20(dev)-6E56CF.svg?logo=linux&logoColor=white)](docs/architecture.md)
-[![Tests](https://img.shields.io/badge/tests-398%20passing-brightgreen.svg)](docs/threat-model.md)
+[![CI](https://github.com/3godzinyL/Aegis-Private-Browser/actions/workflows/ci.yml/badge.svg)](https://github.com/3godzinyL/Aegis-Private-Browser/actions/workflows/ci.yml)
 [![Made with Rust](https://img.shields.io/badge/Made%20with-Rust-000000.svg?logo=rust)](Cargo.toml)
 [![PRs welcome](https://img.shields.io/badge/PRs-welcome-ff69b4.svg)](#-contributing)
 
 <br/>
 
-<img src="docs/images/new-session.png" alt="Aegis — New Private Session: platform selector, four safety tiers, advanced tuning, live preview" width="820"/>
+<!--
+SCREENSHOT GALLERY
+When the direct Discord image URLs are available, replace the text inside each
+cell with the matching <img> tag shown in the cell's HTML comment. GitHub will
+render a direct image URL in README. Keep the descriptive alt text.
+-->
+<table>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Screenshot 1 — main dashboard</strong><br/>
+      <sub>Paste the direct Discord image URL here.</sub>
+      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_1" alt="Aegis main dashboard" width="100%"/> -->
+    </td>
+    <td width="50%" align="center">
+      <strong>Screenshot 2 — new private session</strong><br/>
+      <sub>Paste the direct Discord image URL here.</sub>
+      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_2" alt="Aegis new private session" width="100%"/> -->
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" align="center">
+      <strong>Screenshot 3 — runtime diagnostics</strong><br/>
+      <sub>Paste the direct Discord image URL here.</sub>
+      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_3" alt="Aegis runtime diagnostics" width="100%"/> -->
+    </td>
+    <td width="50%" align="center">
+      <strong>Screenshot 4 — what websites can see</strong><br/>
+      <sub>Paste the direct Discord image URL here.</sub>
+      <!-- <img src="PASTE_DIRECT_DISCORD_IMAGE_URL_4" alt="Aegis website visibility panel" width="100%"/> -->
+    </td>
+  </tr>
+</table>
 
-<sub>The redesigned **New Private Session** dialog — pick a platform (Linux full-VM / Windows host), one of four safety tiers, then optionally fine-tune everything under **Advanced**. A **Preview** tab shows exactly what a site will see. Built-in **EN / PL** UI.</sub>
+<sub>To publish a screenshot, paste its direct Discord media URL into the matching `src="..."` and remove only that line's `<!--` / `-->`. GitHub will display it in this gallery.</sub>
 
 </div>
-
-> [!NOTE]
-> The badges above are **static** shields.io badges so they render on a fresh clone with no CI wired up.
-> After you publish this repository, swap them for live badges (e.g. a GitHub Actions
-> workflow badge for the real test count/status, `shields.io/github/license/<owner>/<repo>`,
-> release/version badges, etc.). A `CI` workflow already lives in [`.github/workflows/ci.yml`](.github/workflows/ci.yml).
 
 ---
 
 ## What Aegis actually gives you
 
-Aegis manages **disposable or persistent, encrypted browser environments**. Each private session runs
+Aegis manages **disposable or persistent browser environments**. Each full-VM private session runs
 in its **own virtual machine** and can reach the Internet **only** through a separate, **fail-closed**
 network gateway. If the tunnel drops, the kill switch cuts the browser off — it never silently falls
 back to a direct connection.
@@ -50,14 +75,14 @@ honest boundaries in **[`docs/limitations.md`](docs/limitations.md)** before you
 
 - 🧱 **VM isolation** — the site runs in a Browser VM with no host GPU, camera, mic, USB, clipboard, or shared folders, and no knowledge of the host's physical NIC.
 - 🌐 **Fail-closed networking** — one route out (Tor / VPN / SOCKS5 / HTTP) through a Gateway VM; `nftables` default-deny; DNS captured; IPv6 blocked; kill switch on any tunnel loss.
-- 💨 **Disposable profiles** — an ephemeral session clones a clean, read-only base snapshot onto a throwaway encrypted overlay that is **shredded** at close. Nothing is recoverable afterwards.
+- 💨 **Disposable profiles** — an ephemeral session uses a throwaway overlay that is destroyed at close. The UI reports teardown/storage evidence honestly instead of assuming that disposal succeeded.
 - 🎭 **Fingerprint normalization, not spoofing** — values are normalized to a shared baseline and kept stable within a session, aiming for a large uniform anonymity set instead of a unique fake device.
-- 🔐 **Encrypted persistent profiles** — Argon2id + XChaCha20-Poly1305, password-derived keys held only in RAM while unlocked.
+- 🔐 **Persistent-profile encryption status** — cryptographic sealing is available, while the UI keeps volume encryption `unknown` until a live encrypted-volume attestation is available.
 - 🧩 **Unweakened engine** — Chromium sandbox and Site Isolation stay **on**; the real engine version stays in the User-Agent. We never ship `--no-sandbox` or `--disable-web-security`.
 - ✅ **Six-check preflight gate** — the first tab never loads unless gateway, tunnel, DNS route, public IP, WebRTC policy, and IPv6 policy all pass.
 - 🔏 **Signed images & updates** — ed25519-signed manifests, SHA-256 per artifact, downgrade protection, automatic rollback, SBOM.
 - 🖥️ **Two front-ends** — a Tauri desktop UI and an `aegis` CLI over a small, authorized local socket to a privileged (but not root-heavy) daemon.
-- 🧪 **Test-backed guarantees** — every protection is enforced in the type system and covered by automated tests (see the [threat model](docs/threat-model.md#7-protection--enforcement-mapping)).
+- 🧪 **Evidence-aware diagnostics** — the UI separates `configured`, `measured`, `verified`, and `unknown`; a written policy alone never becomes a green runtime claim.
 
 ---
 
@@ -126,9 +151,9 @@ those true even when something fails. Full detail: **[`docs/architecture.md`](do
 1. **Provision** — clone the clean, read-only base snapshot onto a fresh disposable qcow2 overlay; allocate a random encryption key **in RAM**.
 2. **Start the gateway** — boot the Gateway VM; establish the tunnel (Tor / VPN / SOCKS5 / HTTP).
 3. **Preflight (the gate)** — run the **six** checks: `gateway_ready`, `tunnel_ready`, `dns_route_verified`, `public_ip_observed`, `webrtc_policy_loaded`, `ipv6_policy_verified`. **No partial pass.**
-4. **Browse** — only if all six pass (`ProtectionStatus::Active`) does the Browser VM boot and the first tab get Internet. The session state machine makes it *impossible* to reach browsing without passing preflight.
-5. **Watch** — the diagnostics panel shows public IP, DNS/IPv6/WebRTC status, devices, render mode, and kill-switch activity, using a four-state badge (protection active / partial / unsafe / none) — never "100% anonymous."
-6. **Close & destroy** — terminate processes, wipe the RAM key, and `shred` the qcow2 overlay. An ephemeral session leaves **no** writable residue.
+4. **Browse** — only if all six pass (`ProtectionStatus::Active`) is the browser process launched. `Browsing` is entered only after a liveness check confirms that process.
+5. **Watch** — diagnostics show isolation, engine, cohort, gateway/tunnel/DNS/IPv6/WebRTC, kill-switch and website-visible values. Every value is marked `configured`, `measured`, `verified`, or `unknown`.
+6. **Close & destroy** — terminate processes, wipe the RAM key, and request overlay destruction. Cleanup remains visible as unknown unless the runtime returns proof of teardown.
 
 If anything on the containment or isolation path fails at any point, the error is classified and the
 **kill switch engages before the error is even surfaced** (fail-closed).
@@ -172,20 +197,20 @@ cargo run -p aegis-cli -- diagnostics <session-id>
 
 ```sh
 # The Tauri UI is a workspace member excluded from default-members (heavy webview deps).
-cargo run -p aegis-manager-ui        # requires the platform webview + Tauri prerequisites
+cargo run --manifest-path apps/manager-ui/src-tauri/Cargo.toml
 ```
 
 **Full VM setup on Linux (the real thing):** follow **[`docs/INSTALL-linux.md`](docs/INSTALL-linux.md)**.
 
 ---
 
-## ⚙️ Configure your anonymity
+## ⚙️ Configure your protection
 
 Every profile is an explicit, honest tradeoff. Create one with `aegis profile create` (or the UI):
 
 | Option | Values | What it controls |
 |--------|--------|------------------|
-| **`--kind`** (type) | `ephemeral` · `persistent` | Ephemeral is shredded at session end (unlinkable across sessions). Persistent lives in an encrypted, re-openable volume — convenient, but its sessions can be linked to each other. |
+| **`--kind`** (type) | `ephemeral` · `persistent` | Ephemeral requests disposal at session end. Persistent keeps state and therefore links its own sessions; the UI does not call its storage encrypted until runtime attestation exists. |
 | **`--isolation`** | `vm` (default, full VM) · `host` (reduced host process) | VM split vs. reduced host-browser mode — see [Two ways to run](#-two-ways-to-run). The daemon-wide default posture is set with `aegis config enforcement`. |
 | **`--net`** (network) | `tor` · `vpn` · `proxy` | **Tor** — strongest at hiding the public IP (default). **VPN** — better compatibility, operator sees your entry address (full-VM only). **Proxy** — SOCKS5 / HTTP CONNECT; accepted only after Aegis confirms DNS and required protocols actually traverse it. |
 | **`--protection`** | `balanced` · `strict` | **Balanced** — virtual-backend WebGL, basic normalization, most sites work. **Strict** — restricted/disabled WebGL, no WebGPU, stronger Canvas limiting, letterboxing, standard fonts: more privacy, more breakage. |
@@ -253,9 +278,10 @@ machine that forbids reaching `Browsing` without passing preflight).
 
 ## 🧭 Status / roadmap
 
-Aegis is at **Stage 0 (foundations)**: the host-side control plane, policy engine, firewall rulesets,
-image definitions, browser policy layer, and docs are in place and test-backed. The VM/gateway runtime
-requires a Linux host with base images built and signed.
+Aegis is a **pre-beta foundation**, not a production release: the host-side control plane, policy engine,
+firewall rulesets, image definitions, browser policy layer, UI and tests are in place. The end-to-end
+VM/gateway path still requires validation on a supported Linux/KVM host before security claims can be
+treated as release guarantees.
 
 - [x] Threat model, data-flow, architecture, privacy model, ADRs
 - [x] `aegis-core` contracts + fail-closed error taxonomy + session state machine
