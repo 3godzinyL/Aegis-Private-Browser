@@ -1,0 +1,81 @@
+# Aegis Private Browser — hardened Chromium release build args (GN).
+# Spec §6 (Variant B: fork Chromium with a minimal change set), §10, §16.
+#
+# Goals encoded here:
+#   * Release, optimized, official-style build — NOT a debug/dev build.
+#   * KEEP the sandbox and Site Isolation. Never build with them off (§10/§16).
+#   * Remove Google sign-in / Chrome Sync signin surface (§6).
+#   * Disable telemetry / RLZ / field-trial phone-home (§6/§10).
+#   * No remote-debugging conveniences baked in (§10/§16).
+#   * Proprietary codecs: OFF by default here (decision noted below).
+#
+# Apply with:  gn gen out/aegis-release --args="$(cat browser/build/args.gn)"
+# (or copy this file to out/aegis-release/args.gn). Validate any change with
+# `gn args out/aegis-release --list` before building. See ./README.md.
+
+# ---- Build type: release, optimized, official-style ----
+is_debug = false
+is_official_build = true          # full optimization, official branding pipeline
+symbol_level = 1                  # keep minimal symbols for crash triage, not full debug
+blink_symbol_level = 0
+dcheck_always_on = false
+is_component_build = false        # static release build
+
+# ---- Sandbox + Site Isolation: KEPT ON (never disable — spec §10/§16) ----
+# These are the Chromium defaults on Linux; we assert them explicitly and add a
+# build-time check (see README) that fails if anyone flips them.
+use_seccomp_bpf = true            # syscall filtering for the sandbox (spec §10)
+# NOTE: there is intentionally NO `disable_seccomp_sandbox`, NO `is_asan`, and
+# NO flag that turns off Site Isolation. Site Isolation is compiled in and left
+# enabled at runtime; the launcher never passes --disable-site-isolation-trials
+# (rejected by BackendPolicyBundle::assert_safe).
+
+# ---- Remove Google account / sync signin & API keys (spec §6) ----
+# Ship WITHOUT baked-in Google API keys so sign-in, sync, and Google-service
+# endpoints are inert even before the managed policy (SyncDisabled/BrowserSignin=0)
+# is read. Empty keys => the corresponding Google integrations do nothing.
+google_api_key = ""
+google_default_client_id = ""
+google_default_client_secret = ""
+
+# ---- Telemetry / metrics / RLZ / field trials OFF (spec §6/§10) ----
+enable_rlz = false                # no RLZ tracking ping
+use_official_google_api_keys = false
+enable_reporting = false          # no Reporting API upload pipeline to Google
+enable_hangout_services_extension = false
+enable_service_discovery = false  # no mDNS/DIAL local-network discovery
+safe_browsing_mode = 1            # standard safe browsing compiled in (policy pins level 1)
+enable_background_mode = false
+optimize_webui = true
+
+# ---- Proprietary / codec decision (spec noted) ----
+# DECISION: build the OPEN codec set only; do NOT bundle proprietary codecs.
+# Rationale: proprietary codec bundling is a licensing + provenance concern and
+# is not required for the privacy goal; VP8/VP9/AV1/Opus cover the common web.
+# If a deployment needs H.264/AAC for compatibility, flip these two together and
+# record it in the SBOM (spec §5-etap):
+proprietary_codecs = false
+ffmpeg_branding = "Chromium"      # "Chrome" would add proprietary codecs
+enable_platform_hevc = false
+enable_hls_sample_aes = false
+
+# ---- Widevine / DRM: off by default ----
+# CDM/DRM is an identifiable component and a provisioning phone-home; leave off.
+enable_widevine = false
+enable_library_cdms = false
+
+# ---- Extensions / PDF / print: keep the browser useful, drop phone-home ----
+enable_extensions = true          # force-installed only; web installs blocked by policy
+enable_pdf = true
+enable_printing = true
+enable_print_preview = true
+
+# ---- Nacl removed (attack surface reduction, upstream default off) ----
+enable_nacl = false
+
+# ---- Toolchain / target ----
+target_os = "linux"
+target_cpu = "x64"
+use_sysroot = true
+use_thin_lto = true
+treat_warnings_as_errors = false  # tolerate upstream warnings on pinned tag builds

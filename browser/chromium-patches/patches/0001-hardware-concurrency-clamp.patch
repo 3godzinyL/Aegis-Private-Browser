@@ -1,0 +1,124 @@
+# ILLUSTRATIVE PATCH — control 8 (hardwareConcurrency clamp), regression test RT-HWCONCURRENCY.
+#
+# This diff shows the *intended shape* of the change, not a line-accurate patch
+# against a specific Chromium tag. Paths/line numbers/context are representative;
+# the real patch is regenerated against the pinned tag during the build
+# (see ../../build/README.md). Spec §7 (standard logical-CPU count), §16 (every
+# Chromium modification documented + regression-tested).
+#
+# Design notes:
+#  * Clamps the REAL (virtual) vCPU count DOWN to the level constant. It does not
+#    invent a different CPU (invariant 4: never fake hardware the VM lacks).
+#  * NavigatorConcurrentHardware backs BOTH Navigator and WorkerNavigator, so the
+#    same value is returned in the main frame, iframes, and all worker types
+#    (spec §7 stability). The value is plumbed from WebPreferences (browser
+#    process) so every renderer/worker shares it.
+#  * Value source: aegis_core::fingerprint::FingerprintPolicy.hardware_concurrency
+#    (Balanced = 4, Strict = 2), rendered into WebPreferences by browser-launcher.
+
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.cc b/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.cc
+index 1111111..2222222 100644
+--- a/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.cc
++++ b/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.cc
+@@ -6,10 +6,29 @@
+ #include "third_party/blink/public/platform/platform.h"
++#include "third_party/blink/renderer/core/execution_context/execution_context.h"
++#include "third_party/blink/renderer/core/frame/settings.h"
+
+ namespace blink {
+
+-unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
+-  return static_cast<unsigned>(Platform::Current()->NumberOfProcessors());
++unsigned NavigatorConcurrentHardware::hardwareConcurrency() const {
++  const unsigned real = static_cast<unsigned>(
++      Platform::Current()->NumberOfProcessors());
++
++  // Aegis fingerprint normalization (spec §7). A non-zero clamp is provided by
++  // WebPreferences for both frames and workers; 0 means "expose real value".
++  // We only ever CLAMP DOWN — never report more cores than the VM actually has
++  // (invariant 4: no faked hardware).
++  const unsigned clamp = AegisHardwareConcurrencyClamp();
++  if (clamp == 0)
++    return real;
++  return std::min(real, clamp);
+ }
+
++// Reads the per-session constant plumbed from the browser process via
++// WebPreferences so Navigator (frame) and WorkerNavigator (dedicated/shared/
++// service worker) return the IDENTICAL value — the cross-context stability the
++// regression test RT-HWCONCURRENCY asserts.
++unsigned NavigatorConcurrentHardware::AegisHardwareConcurrencyClamp() const {
++  return GetExecutionContext()
++             ? GetExecutionContext()->GetAegisHardwareConcurrencyClamp()
++             : 0u;
++}
++
+ }  // namespace blink
+
+diff --git a/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.h b/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.h
+index 3333333..4444444 100644
+--- a/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.h
++++ b/third_party/blink/renderer/core/execution_context/navigator_concurrent_hardware.h
+@@ -18,6 +18,10 @@ class CORE_EXPORT NavigatorConcurrentHardware {
+  public:
+   unsigned hardwareConcurrency() const;
+
++ private:
++  // Aegis: per-session clamp (0 = expose real). See spec §7.
++  unsigned AegisHardwareConcurrencyClamp() const;
++
+ };
+
+ }  // namespace blink
+
+diff --git a/third_party/blink/web_tests/aegis/hardware-concurrency-clamp.html b/third_party/blink/web_tests/aegis/hardware-concurrency-clamp.html
+new file mode 100644
+index 0000000..5555555
+--- /dev/null
++++ b/third_party/blink/web_tests/aegis/hardware-concurrency-clamp.html
+@@ -0,0 +1,44 @@
++<!DOCTYPE html>
++<!-- RT-HWCONCURRENCY (spec §7, §16). Runs under both Strict (expect 2) and
++     Balanced (expect 4); the harness sets window.__AEGIS_EXPECTED before load. -->
++<title>RT-HWCONCURRENCY: hardwareConcurrency is clamped and cross-context stable</title>
++<script src="/resources/testharness.js"></script>
++<script src="/resources/testharnessreport.js"></script>
++<body>
++<iframe id="f" srcdoc="<script>parent.postMessage(navigator.hardwareConcurrency,'*')<\/script>"></iframe>
++<script>
++const EXPECTED = window.__AEGIS_EXPECTED; // 2 (Strict) or 4 (Balanced)
++
++test(() => {
++  assert_equals(navigator.hardwareConcurrency, EXPECTED,
++                "main frame reports the level constant");
++}, "main frame clamp");
++
++// Cross-context: dedicated worker must agree with the main frame.
++promise_test(async () => {
++  const src = "postMessage(navigator.hardwareConcurrency)";
++  const w = new Worker(URL.createObjectURL(new Blob([src])));
++  const v = await new Promise(r => w.onmessage = e => r(e.data));
++  assert_equals(v, EXPECTED, "dedicated worker agrees with main frame");
++}, "worker clamp equals main frame");
++
++// Cross-context: service worker must agree.
++promise_test(async () => {
++  const reg = await navigator.serviceWorker.register(
++      "/aegis/hwc-sw.js", {scope: "/aegis/"});
++  await navigator.serviceWorker.ready;
++  const sw = reg.active || reg.installing;
++  const mc = new MessageChannel();
++  const v = await new Promise(r => {
++    mc.port1.onmessage = e => r(e.data);
++    sw.postMessage("hwc", [mc.port2]);
++  });
++  assert_equals(v, EXPECTED, "service worker agrees with main frame");
++}, "service worker clamp equals main frame");
++
++// Cross-context: iframe must agree.
++promise_test(async () => {
++  const v = await new Promise(r => window.onmessage = e => r(e.data));
++  assert_equals(v, EXPECTED, "iframe agrees with main frame");
++}, "iframe clamp equals main frame");
++</script>
++</body>

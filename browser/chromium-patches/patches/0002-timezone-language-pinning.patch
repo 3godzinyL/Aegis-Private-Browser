@@ -1,0 +1,129 @@
+# ILLUSTRATIVE PATCH — control 10 (timezone + language pinning), regression test RT-TZ-LANG.
+#
+# This diff shows the *intended shape* of the change, not a line-accurate patch
+# against a specific Chromium tag. Paths/line numbers/context are representative;
+# the real patch is regenerated against the pinned tag during the build
+# (see ../../build/README.md). Spec §7 (shared timezone + language), §16.
+#
+# Design notes:
+#  * Timezone and language are SHARED CONSTANTS for the session (UTC / en-US by
+#    default), not per-user random values -> large anonymity set (spec §7).
+#  * The ICU default timezone is overridden in the browser process and inherited
+#    by every renderer and worker, so Intl/Date/Accept-Language all agree across
+#    main frame, iframes, workers, and service workers (spec §7 stability).
+#  * Values come from aegis_core::fingerprint::FingerprintPolicy.timezone /
+#    .primary_language, rendered by browser-launcher (and mirrored by the --lang
+#    switch and the Accept-Language provider). timezone=None -> derive from the
+#    tunnel exit (still shared per exit, never the host zone).
+
+diff --git a/content/browser/browser_main_loop.cc b/content/browser/browser_main_loop.cc
+index aaaaaaa..bbbbbbb 100644
+--- a/content/browser/browser_main_loop.cc
++++ b/content/browser/browser_main_loop.cc
+@@ -40,6 +40,9 @@
+ #include "base/i18n/icu_util.h"
++#include "base/i18n/rtl.h"
++#include "third_party/icu/source/i18n/unicode/timezone.h"
++#include "content/public/common/content_switches.h"
+
+ namespace content {
+
+@@ -220,6 +223,20 @@ int BrowserMainLoop::PreCreateThreads() {
+   base::i18n::InitializeICU();
+
++  // Aegis fingerprint normalization (spec §7): pin the process-wide ICU default
++  // timezone to the session-shared value so Intl.DateTimeFormat, Date, and the
++  // renderer/worker locale all report the same zone. Empty = keep the value
++  // derived from the tunnel exit (still not the host zone).
++  const auto& cmd = *base::CommandLine::ForCurrentProcess();
++  const std::string aegis_tz =
++      cmd.GetSwitchValueASCII(switches::kAegisTimeZone);
++  if (!aegis_tz.empty()) {
++    std::unique_ptr<icu::TimeZone> tz(
++        icu::TimeZone::createTimeZone(icu::UnicodeString::fromUTF8(aegis_tz)));
++    if (tz && *tz != icu::TimeZone::getUnknown())
++      icu::TimeZone::adoptDefault(tz.release());
++  }
++
+   return result;
+ }
+
+diff --git a/third_party/blink/renderer/core/frame/navigator_language.cc b/third_party/blink/renderer/core/frame/navigator_language.cc
+index ccccccc..ddddddd 100644
+--- a/third_party/blink/renderer/core/frame/navigator_language.cc
++++ b/third_party/blink/renderer/core/frame/navigator_language.cc
+@@ -12,6 +12,7 @@
+ #include "third_party/blink/renderer/platform/language.h"
++#include "third_party/blink/renderer/platform/runtime_enabled_features.h"
+
+ namespace blink {
+
+@@ -20,7 +21,15 @@ AtomicString NavigatorLanguage::language() {
+-  return languages().empty() ? g_empty_atom : languages().front();
++  // Aegis: pin the primary language to the session-shared value (spec §7).
++  // Applied here (shared by Navigator and WorkerNavigator) so frames, workers,
++  // and service workers all report the identical navigator.language.
++  const AtomicString pinned = AegisPinnedLanguage();
++  if (!pinned.empty())
++    return pinned;
++  return languages().empty() ? g_empty_atom : languages().front();
+ }
+
+diff --git a/content/public/common/content_switches.cc b/content/public/common/content_switches.cc
+index eeeeeee..fffffff 100644
+--- a/content/public/common/content_switches.cc
++++ b/content/public/common/content_switches.cc
+@@ -30,6 +30,10 @@ namespace switches {
+
++// Aegis: session-shared IANA timezone (e.g. "UTC"). Empty keeps the
++// tunnel-derived zone. Never the host zone. Spec §7.
++const char kAegisTimeZone[] = "aegis-time-zone";
++
+ }  // namespace switches
+
+diff --git a/third_party/blink/web_tests/aegis/timezone-language-pinning.html b/third_party/blink/web_tests/aegis/timezone-language-pinning.html
+new file mode 100644
+index 0000000..1212121
+--- /dev/null
++++ b/third_party/blink/web_tests/aegis/timezone-language-pinning.html
+@@ -0,0 +1,40 @@
++<!DOCTYPE html>
++<!-- RT-TZ-LANG (spec §7, §16). Default expectation: UTC / en-US / offset 0. -->
++<title>RT-TZ-LANG: timezone and language are pinned and cross-context stable</title>
++<script src="/resources/testharness.js"></script>
++<script src="/resources/testharnessreport.js"></script>
++<body>
++<iframe id="f" srcdoc="<script>parent.postMessage({
++  tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
++  lang: navigator.language,
++  off: new Date().getTimezoneOffset()},'*')<\/script>"></iframe>
++<script>
++const TZ = "UTC", LANG = "en-US";
++
++test(() => {
++  assert_equals(Intl.DateTimeFormat().resolvedOptions().timeZone, TZ);
++  assert_equals(new Date().getTimezoneOffset(), 0, "UTC offset is 0");
++  assert_equals(navigator.language, LANG);
++}, "main frame timezone + language pinned");
++
++// Cross-context: worker must agree (a frame/worker mismatch is the exact
++// inconsistency spec §7 forbids).
++promise_test(async () => {
++  const src = `postMessage({
++    tz: Intl.DateTimeFormat().resolvedOptions().timeZone,
++    lang: navigator.language })`;
++  const w = new Worker(URL.createObjectURL(new Blob([src])));
++  const v = await new Promise(r => w.onmessage = e => r(e.data));
++  assert_equals(v.tz, TZ, "worker timezone equals main frame");
++  assert_equals(v.lang, LANG, "worker language equals main frame");
++}, "worker timezone + language equal main frame");
++
++// Cross-context: iframe must agree.
++promise_test(async () => {
++  const v = await new Promise(r => window.onmessage = e => r(e.data));
++  assert_equals(v.tz, TZ, "iframe timezone equals main frame");
++  assert_equals(v.lang, LANG, "iframe language equals main frame");
++  assert_equals(v.off, 0, "iframe offset is 0");
++}, "iframe timezone + language equal main frame");
++</script>
++</body>

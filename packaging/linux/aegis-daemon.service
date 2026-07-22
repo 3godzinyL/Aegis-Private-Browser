@@ -1,0 +1,73 @@
+# Aegis privileged orchestration daemon.
+#
+# The daemon is the ONLY privileged component (spec §10: "proces zarządzający VM
+# nie działa jako root; daemon uprzywilejowany posiada minimalny interfejs;
+# filtrowanie wywołań systemowych"). It does NOT run as full root: it runs as a
+# dedicated `aegis` system user that is a member of the `libvirt` group, so it can
+# talk to libvirtd without CAP_SYS_ADMIN on the host. All the sandbox directives
+# below shrink its attack surface.
+
+[Unit]
+Description=Aegis Private Browser orchestration daemon
+Documentation=file:/usr/share/doc/aegis/architecture.md
+After=network.target libvirtd.service
+Wants=libvirtd.service
+# Socket activation: the socket unit creates the authorized control socket.
+Requires=aegis-daemon.socket
+
+[Service]
+Type=notify
+ExecStart=/usr/libexec/aegis/aegis-daemon --config /etc/aegis/config.toml
+Restart=on-failure
+RestartSec=2
+
+# --- Identity: a dedicated, unprivileged system user (NOT root) ---
+User=aegis
+Group=aegis
+SupplementaryGroups=libvirt kvm
+
+# --- Filesystem confinement ---
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/aegis /var/log/aegis /run/aegis
+RuntimeDirectory=aegis
+RuntimeDirectoryMode=0710
+StateDirectory=aegis
+LogsDirectory=aegis
+PrivateTmp=true
+ProtectProc=invisible
+ProcSubset=pid
+
+# --- Kernel / device confinement ---
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectKernelLogs=true
+ProtectControlGroups=true
+ProtectClock=true
+ProtectHostname=true
+RestrictNamespaces=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+# libvirt/qemu need /dev/kvm; deny everything else.
+DevicePolicy=closed
+DeviceAllow=/dev/kvm rw
+DeviceAllow=/dev/net/tun rw
+
+# --- Capabilities: the daemon needs almost none on the host itself ---
+CapabilityBoundingSet=CAP_NET_ADMIN
+AmbientCapabilities=
+NoNewPrivileges=true
+
+# --- Syscall filtering (spec §10 "filtrowanie wywołań systemowych") ---
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources @obsolete @cpu-emulation @swap
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+
+# --- No core dumps that could contain user data (spec §10) ---
+LimitCORE=0
+
+[Install]
+WantedBy=multi-user.target

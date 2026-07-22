@@ -1,0 +1,35 @@
+[package]
+name = "update-client"
+description = "Signed-manifest update client with downgrade protection + rollback for Aegis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[features]
+default = ["ureq-transport"]
+# The networked transport is optional so the crate (and its tests) can build and
+# run fully offline with the file/mock transports.
+ureq-transport = ["dep:ureq"]
+
+[dependencies]
+aegis-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+ed25519-dalek.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tracing.workspace = true
+ureq = { workspace = true, optional = true }
+
+[dev-dependencies]
+tempfile.workspace = true
+rand.workspace = true

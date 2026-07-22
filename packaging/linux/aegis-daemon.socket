@@ -1,0 +1,21 @@
+# Socket-activated control socket for the Aegis daemon.
+#
+# The socket lives under /run/aegis with mode 0660 owned by root:aegis, so only
+# processes in the `aegis` group (the desktop UI/CLI, added to that group at
+# install time) can connect. The daemon ADDITIONALLY authorizes each connection
+# by peer credentials (SO_PEERCRED) — the socket permissions are defense in
+# depth, not the only gate (spec §4: "lokalne Unix socket z autoryzacją").
+
+[Unit]
+Description=Aegis daemon control socket
+
+[Socket]
+ListenStream=/run/aegis/daemon.sock
+SocketMode=0660
+SocketUser=root
+SocketGroup=aegis
+# Refuse to run if the path already exists as something unexpected.
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target

@@ -1,0 +1,21 @@
+[package]
+name = "network-audit"
+description = "Preflight connectivity checklist and leak detection for Aegis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aegis-core.workspace = true
+async-trait.workspace = true
+
+[dev-dependencies]
+# The auditor itself performs no I/O; tokio is only needed to drive the async
+# probe/checklist tests.
+tokio = { workspace = true, features = ["rt", "macros"] }

@@ -1,0 +1,27 @@
+[package]
+name = "profile-store"
+description = "Persistent + ephemeral profile repository with single-writer locking for Aegis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aegis-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+chrono.workspace = true
+uuid.workspace = true
+tracing.workspace = true
+rand.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

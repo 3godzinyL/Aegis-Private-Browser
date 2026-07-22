@@ -1,0 +1,37 @@
+# Example Aegis daemon configuration — installed to /etc/aegis/config.toml.
+# Values here mirror aegis_core::config::AppConfig.
+
+# Default tunnel for new profiles. One of: tor / vpn / proxy (see [default_network]).
+default_protection = "balanced"   # balanced | strict
+network_prefix = "aegis"          # isolated libvirt network name prefix
+
+# ed25519 public key (hex) used to verify signed update + image manifests.
+# Generate with packaging/updater/generate-keys.sh; publish only the PUBLIC key here.
+# update_verify_key = "0000...."
+
+[default_network]
+kind = "tor"
+
+[default_network.Tor]
+use_bridges = false
+bridges = []
+
+[paths]
+profiles_dir = "/var/lib/aegis/profiles"
+images_dir   = "/var/lib/aegis/images"
+runtime_dir  = "/run/aegis"            # MUST be tmpfs / RAM-backed
+audit_log    = "/var/log/aegis/audit.jsonl"
+daemon_socket = "/run/aegis/daemon.sock"
+
+# Signed base images consumed read-only; disposable qcow2 overlays back onto them.
+# [images.gateway]
+# path = "/var/lib/aegis/images/gateway-1.0.0.qcow2"
+# signature = "/var/lib/aegis/images/gateway-1.0.0.qcow2.sig"
+# version = "1.0.0"
+# sha256 = "...."
+#
+# [images.browser]
+# path = "/var/lib/aegis/images/browser-1.0.0.qcow2"
+# signature = "/var/lib/aegis/images/browser-1.0.0.qcow2.sig"
+# version = "1.0.0"
+# sha256 = "...."

@@ -1,0 +1,31 @@
+[package]
+name = "aegis-ipc"
+description = "UI/CLI <-> privileged daemon IPC protocol and transport for Aegis"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+aegis-core.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[target.'cfg(unix)'.dependencies]
+# Used to read SO_PEERCRED (peer uid/gid) on the accepted Unix-domain socket so
+# the daemon can authorize only same-uid (or a configured uid) callers.
+nix = { version = "0.29", features = ["socket"] }
+
+[dev-dependencies]
+tempfile.workspace = true
+chrono.workspace = true

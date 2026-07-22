@@ -1,0 +1,24 @@
+[package]
+name = "aegis-core"
+description = "Core domain model, contracts, and policy types shared across the Aegis workspace"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+async-trait.workspace = true
+zeroize.workspace = true
+
+[dev-dependencies]
+serde_json.workspace = true

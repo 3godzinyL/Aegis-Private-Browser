@@ -1,0 +1,47 @@
+[package]
+name = "aegis-daemon"
+description = "Aegis privileged orchestration daemon (session lifecycle, fail-closed enforcement)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[lints]
+workspace = true
+
+[lib]
+name = "aegis_daemon"
+path = "src/lib.rs"
+
+[[bin]]
+name = "aegis-daemon"
+path = "src/main.rs"
+
+[dependencies]
+aegis-core.workspace = true
+aegis-ipc.workspace = true
+secure-storage.workspace = true
+profile-store.workspace = true
+vm-controller.workspace = true
+gateway-controller.workspace = true
+network-audit.workspace = true
+browser-launcher.workspace = true
+update-client.workspace = true
+tokio.workspace = true
+async-trait.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+anyhow.workspace = true
+clap.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+toml.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+ed25519-dalek.workspace = true
+rand.workspace = true
+hex.workspace = true
